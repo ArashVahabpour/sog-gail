@@ -118,10 +118,6 @@ def get_args():
         default=10e6,
         help='number of environment steps to train (default: 10e6)')
     parser.add_argument(
-        '--env-name',
-        default='PongNoFrameskip-v4',
-        help='environment to train on (default: PongNoFrameskip-v4)')
-    parser.add_argument(
         '--log-dir',
         default='/tmp/gym/',
         help='directory to save agent logs (default: /tmp/gym)')
@@ -149,6 +145,24 @@ def get_args():
         action='store_true',
         default=False,
         help='use a linear schedule on the learning rate')
+    parser.add_argument(
+        '--radii',
+        type=str, default='-10,10,20',
+        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards.')
+    parser.add_argument(
+        '--env-name',
+        type=str,
+        default='Circles-v0',
+        help='environment to train')
+    parser.add_argument(
+        '--gen-expert',
+        action='store_true',
+        help='if specified, generate (new) expert dataset and store on disk')
+    parser.add_argument(
+        '--render-gym',
+        action='store_true',
+        help='if specified, gym environment will get rendered, useful for debugging.')
+
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -157,5 +171,10 @@ def get_args():
     if args.recurrent_policy:
         assert args.algo in ['a2c', 'ppo'], \
             'Recurrent policy is not implemented for ACKTR'
+
+    if args.env_name == 'Circles-v0':
+        args.radii = [int(r) for r in args.radii.split(',')]
+        # maximum action magnitude in Circles-v0 environment
+        args.max_ac_mag = max(map(abs, args.radii)) * 0.075
 
     return args

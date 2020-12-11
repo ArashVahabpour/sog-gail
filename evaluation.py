@@ -6,9 +6,9 @@ from a2c_ppo_acktr.envs import make_vec_envs
 
 
 def evaluate(actor_critic, ob_rms, env_name, seed, num_processes, eval_log_dir,
-             device):
+             device, args):
     eval_envs = make_vec_envs(env_name, seed + num_processes, num_processes,
-                              None, eval_log_dir, device, True)
+                              None, eval_log_dir, device, True, args)
 
     vec_norm = utils.get_vec_normalize(eval_envs)
     if vec_norm is not None:

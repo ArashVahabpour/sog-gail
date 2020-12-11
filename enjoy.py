@@ -43,6 +43,7 @@ env = make_vec_envs(
     None,
     None,
     device='cpu',
+    args=args,
     allow_early_resets=False)
 
 # Get a render function

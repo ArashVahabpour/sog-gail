@@ -22,6 +22,7 @@ from evaluation import evaluate
 
 def main():
     args = get_args()
+    args.is_train = True
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -39,7 +40,7 @@ def main():
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, args.log_dir, device, False)
+                         args.gamma, args.log_dir, device, False, args)
 
     actor_critic = Policy(
         envs.observation_space.shape,
@@ -191,7 +192,7 @@ def main():
                 and j % args.eval_interval == 0):
             ob_rms = utils.get_vec_normalize(envs).ob_rms
             evaluate(actor_critic, ob_rms, args.env_name, args.seed,
-                     args.num_processes, eval_log_dir, device)
+                     args.num_processes, eval_log_dir, device, args)
 
 
 if __name__ == "__main__":
