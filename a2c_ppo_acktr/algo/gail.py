@@ -114,8 +114,12 @@ class Discriminator(nn.Module):
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, file_name, num_trajectories=4, subsample_frequency=20):
         all_trajectories = torch.load(file_name)
-        
-        perm = torch.randperm(all_trajectories['states'].size(0))
+        num_all_trajectories = all_trajectories['states'].size(0)
+
+        if num_trajectories is None:
+            num_trajectories = num_all_trajectories
+
+        perm = torch.randperm(num_all_trajectories)
         idx = perm[:num_trajectories]
 
         self.trajectories = {}
@@ -128,13 +132,15 @@ class ExpertDataset(torch.utils.data.Dataset):
         for k, v in all_trajectories.items():
             data = v[idx]
 
-            if k != 'lengths':
+            if k in ['states', 'actions']:
                 samples = []
                 for i in range(num_trajectories):
                     samples.append(data[i, start_idx[i]::subsample_frequency])
                 self.trajectories[k] = torch.stack(samples)
-            else:
+            elif k == 'lengths':
                 self.trajectories[k] = data // subsample_frequency
+            else:  # e.g. radii for Circles-v0 environment
+                self.trajectories[k] = data
 
         self.i2traj_idx = {}
         self.i2i = {}

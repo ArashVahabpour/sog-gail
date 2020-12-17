@@ -3,6 +3,7 @@ import glob
 import os
 import time
 from collections import deque
+from tqdm import tqdm
 
 import gym
 import numpy as np
@@ -82,7 +83,7 @@ def main():
                 args.env_name.split('-')[0].lower()))
         
         expert_dataset = gail.ExpertDataset(
-            file_name, num_trajectories=4, subsample_frequency=20)
+            file_name, num_trajectories=None, subsample_frequency=20)
         drop_last = len(expert_dataset) > args.gail_batch_size
         gail_train_loader = torch.utils.data.DataLoader(
             dataset=expert_dataset,
@@ -103,7 +104,7 @@ def main():
     start = time.time()
     num_updates = int(
         args.num_env_steps) // args.num_steps // args.num_processes
-    for j in range(num_updates):
+    for j in tqdm(range(num_updates)):
 
         if args.use_linear_lr_decay:
             # decrease learning rate linearly

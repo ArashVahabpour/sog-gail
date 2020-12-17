@@ -36,7 +36,7 @@ def make_env(env_id, seed, rank, log_dir, allow_early_resets, args):
             env = dm_control2gym.make(domain_name=domain, task_name=task)
         else:
             if args.env_name == "Circles-v0":
-                env = gym.make(env_id, opt=args)
+                env = gym.make(env_id, args=args)
             else:
                 env = gym.make(env_id)
 
