@@ -177,4 +177,6 @@ def get_args():
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
 
+    # TODO Arash: separate away train/test options
+
     return args
