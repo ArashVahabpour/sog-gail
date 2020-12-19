@@ -126,6 +126,10 @@ def get_args():
         default='./trained_models/',
         help='directory to save agent logs (default: ./trained_models/)')
     parser.add_argument(
+        '--results-dir',
+        default='./results/',
+        help='directory to store gail results (gym env snapshots)')
+    parser.add_argument(
         '--no-cuda',
         action='store_true',
         default=False,

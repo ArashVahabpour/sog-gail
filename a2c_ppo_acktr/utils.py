@@ -1,13 +1,15 @@
 import glob
 import os
+from functools import partial
 
 import torch
 import torch.nn as nn
+import gym
 
 from a2c_ppo_acktr.envs import VecNormalize
 
 import matplotlib.pyplot as plt
-from cycler import cycler
+from pyvirtualdisplay import Display
 
 
 # Get a render function
@@ -68,32 +70,47 @@ def cleanup_log_dir(log_dir):
             os.remove(f)
 
 
-def visualize_circles_trajectories(obs_list, action_list, fig_path):
-    """
-    Visualize trajectories for Circles-v0 environment
-    TODO Arash write here the dims required
-    """
-    cm = plt.get_cmap('tab20')
-    colorlist = list(cm.colors)
-    custom_cycler = cycler(color=colorlist)
+def visualize_env(args, actor_critic, update_num):
+    # action_func: a function with input obs and output action
+    action_func = partial(actor_critic.act, rnn_hxs=None, masks=None)
+    device = next(actor_critic.parameters()).device
 
-    # State visualization
-    fig, axs = plt.subplots(ncols=2, figsize=(20, 10))
-    axs[0].set_aspect('equal', 'box')
-    axs[1].set_aspect('equal', 'box')
-    axs[0].set_prop_cycle(custom_cycler)
-    axs[1].set_prop_cycle(custom_cycler)
-    for i, traj in enumerate(obs_list):
-        axs[0].plot(traj[:, -2], traj[:, -1], "-", alpha=0.5, label=str(i))
-    # Action visualization
-    for i, a_traj in enumerate(action_list):
-        axs[1].plot(a_traj[:, -2], a_traj[:, -1], "-", alpha=0.5, label=str(i))
-    axs[0].legend()
-    axs[1].legend()
-    plt.tight_layout()
-    save_dir = os.path.dirname(fig_path)
-    os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(fig_path)
+    display = Display(visible=0, size=(1280, 1024))
+    display.start()
+
+    if args.env_name == 'Circles-v0':
+        import gym_sog
+        env = gym.make(args.env_name, args=args)
+    else:
+        env = gym.make(args.env_name)
+
+    obs = env.reset()
+
+    num_steps = 100
+
+    results_dir = os.path.join(args.results_dir, args.env_name.split('-')[0].lower())
+    os.makedirs(results_dir, exist_ok=True)
+    filename = os.path.join(results_dir, f'{update_num}.png')
+
+    for i in range(num_steps):
+        with torch.no_grad():
+            # we have to consider an extra dimension 0 because the actor critic object works with environment vectors (see the training code)
+            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
+            _, actions_tensor, _, _ = action_func(obs_tensor)
+            actions = actions_tensor[0].cpu().numpy()
+
+        obs, _, done, _ = env.step(actions)
+
+        # if done:
+        #     print('warning: early \'done\' flag')
+        if i == num_steps - 1:
+            plt.figure(figsize=(20, 10))
+            plt.imshow(env.render(mode='rgb_array'))
+            plt.axis('off')
+            plt.savefig(filename, bbox_inches='tight')
+            plt.close()
+
+    env.close()
 
 
 def generate_latent_codes(args, count):
