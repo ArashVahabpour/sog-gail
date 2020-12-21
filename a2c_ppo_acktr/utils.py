@@ -9,7 +9,7 @@ import gym
 from a2c_ppo_acktr.envs import VecNormalize
 
 import matplotlib.pyplot as plt
-from pyvirtualdisplay import Display
+import numpy as np
 
 
 # Get a render function
@@ -70,13 +70,10 @@ def cleanup_log_dir(log_dir):
             os.remove(f)
 
 
-def visualize_env(args, actor_critic, update_num):
+def visualize_env(args, actor_critic, epoch, num_steps=1000):
     # action_func: a function with input obs and output action
     action_func = partial(actor_critic.act, rnn_hxs=None, masks=None)
     device = next(actor_critic.parameters()).device
-
-    display = Display(visible=0, size=(1280, 1024))
-    display.start()
 
     if args.env_name == 'Circles-v0':
         import gym_sog
@@ -86,11 +83,7 @@ def visualize_env(args, actor_critic, update_num):
 
     obs = env.reset()
 
-    num_steps = 100
-
-    results_dir = os.path.join(args.results_dir, args.env_name.split('-')[0].lower())
-    os.makedirs(results_dir, exist_ok=True)
-    filename = os.path.join(results_dir, f'{update_num}.png')
+    filename = os.path.join(args.results_dir, f'{epoch}.png')
 
     for i in range(num_steps):
         with torch.no_grad():
@@ -101,13 +94,18 @@ def visualize_env(args, actor_critic, update_num):
 
         obs, _, done, _ = env.step(actions)
 
-        # if done:
-        #     print('warning: early \'done\' flag')
         if i == num_steps - 1:
-            plt.figure(figsize=(20, 10))
-            plt.imshow(env.render(mode='rgb_array'))
+            plt.figure(figsize=(10, 20))
+            plt.plot(env.loc_history[:, 0], env.loc_history[:, 1])
+            for r in args.radii:
+                t = np.linspace(0, 2 * np.pi, 200)
+                plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
+            max_r = np.max(np.abs(args.radii))
+            plt.axis('equal')
             plt.axis('off')
-            plt.savefig(filename, bbox_inches='tight')
+            plt.xlim([-max_r, max_r])
+            plt.ylim([-2 * max_r, 2 * max_r])
+            plt.savefig(filename)
             plt.close()
 
     env.close()

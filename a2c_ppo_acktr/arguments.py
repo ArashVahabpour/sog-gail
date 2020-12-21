@@ -1,10 +1,27 @@
 import argparse
-
 import torch
+import os
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='RL')
+
+
+
+    parser.add_argument(
+        '--name',
+        type=str,
+        default='gail',
+        help='name of the experiment. It decides where to store samples and models')
+    parser.add_argument(
+        '--which_epoch',
+        type=str, default='latest',
+        help='which epoch to load? set to latest to use latest cached model')
+
+
+
+
+
     parser.add_argument(
         '--algo', default='a2c', help='algorithm to use: a2c | ppo | acktr')
     parser.add_argument(
@@ -34,7 +51,7 @@ def get_args():
         '--alpha',
         type=float,
         default=0.99,
-        help='RMSprop optimizer apha (default: 0.99)')
+        help='RMSprop optimizer alpha (default: 0.99)')
     parser.add_argument(
         '--gamma',
         type=float,
@@ -126,7 +143,7 @@ def get_args():
         default='./trained_models/',
         help='directory to save agent logs (default: ./trained_models/)')
     parser.add_argument(
-        '--results-dir',
+        '--results-root',
         default='./results/',
         help='directory to store gail results (gym env snapshots)')
     parser.add_argument(
@@ -158,18 +175,11 @@ def get_args():
         type=str,
         default='Circles-v0',
         help='environment to train')
-    parser.add_argument(
-        '--gen-expert',
-        action='store_true',
-        help='if specified, generate (new) expert dataset and store on disk')
-    parser.add_argument(
-        '--render-gym',
-        action='store_true',
-        help='if specified, gym environment will get rendered, useful for debugging.')
 
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+    args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
 
     assert args.algo in ['a2c', 'ppo', 'acktr']
     if args.recurrent_policy:
