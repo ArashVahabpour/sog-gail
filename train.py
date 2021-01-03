@@ -51,19 +51,11 @@ def main():
     actor_critic = Policy(
         envs.observation_space.shape,
         envs.action_space,
+        args.env_name,
         base_kwargs={'recurrent': args.recurrent_policy})
     actor_critic.to(device)
 
-    if args.algo == 'a2c':
-        agent = algo.A2C_ACKTR(
-            actor_critic,
-            args.value_loss_coef,
-            args.entropy_coef,
-            lr=args.lr,
-            eps=args.eps,
-            alpha=args.alpha,
-            max_grad_norm=args.max_grad_norm)
-    elif args.algo == 'ppo':
+    if args.algo == 'ppo':
         agent = algo.PPO(
             actor_critic,
             args.clip_param,
@@ -74,27 +66,27 @@ def main():
             lr=args.lr,
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
-    elif args.algo == 'acktr':
-        agent = algo.A2C_ACKTR(
-            actor_critic, args.value_loss_coef, args.entropy_coef, acktr=True)
+    else:
+        raise NotImplementedError
 
-    if args.gail:
-        assert len(envs.observation_space.shape) == 1
-        discr = gail.Discriminator(
-            envs.observation_space.shape[0] + envs.action_space.shape[0], 100,
-            device)
-        file_name = os.path.join(
-            args.gail_experts_dir, "trajs_{}.pt".format(
-                args.env_name.split('-')[0].lower()))
-        
-        expert_dataset = gail.ExpertDataset(
-            file_name, num_trajectories=None, subsample_frequency=20)
-        drop_last = len(expert_dataset) > args.gail_batch_size
-        gail_train_loader = torch.utils.data.DataLoader(
-            dataset=expert_dataset,
-            batch_size=args.gail_batch_size,
-            shuffle=True,
-            drop_last=drop_last)
+    assert args.gail
+    assert len(envs.observation_space.shape) == 1
+
+    discr = gail.Discriminator(
+        envs.observation_space.shape[0] + envs.action_space.shape[0], 128,
+        device)
+    file_name = os.path.join(
+        args.gail_experts_dir, "trajs_{}.pt".format(
+            args.env_name.split('-')[0].lower()))
+
+    expert_dataset = gail.ExpertDataset(
+        file_name, num_trajectories=None, subsample_frequency=20)
+    drop_last = len(expert_dataset) > args.gail_batch_size
+    gail_train_loader = torch.utils.data.DataLoader(
+        dataset=expert_dataset,
+        batch_size=args.gail_batch_size,
+        shuffle=True,
+        drop_last=drop_last)
 
     rollouts = RolloutStorage(args.num_steps, args.num_processes,
                               envs.observation_space.shape, envs.action_space,
@@ -120,9 +112,7 @@ def main():
         for step in range(args.num_steps):
             # Sample actions
             with torch.no_grad():
-                value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
-                    rollouts.obs[step], rollouts.recurrent_hidden_states[step],
-                    rollouts.masks[step])
+                value, action, action_log_prob = actor_critic.act(rollouts.obs[step], rollouts.latent_codes[step])
 
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)

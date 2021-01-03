@@ -16,8 +16,8 @@ class Discriminator(nn.Module):
         self.device = device
 
         self.trunk = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim), nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim), nn.Tanh(),
+            nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
             nn.Linear(hidden_dim, 1)).to(device)
 
         self.trunk.train()
@@ -111,6 +111,28 @@ class Discriminator(nn.Module):
             return reward / np.sqrt(self.ret_rms.var[0] + 1e-8)
 
 
+# Specific to InfoGAIL
+class Posterior(nn.Module):
+    def __init__(self, input_dim, hidden_dim, latent_dim, device):
+        super().__init__()
+
+        self.model = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
+            nn.Linear(hidden_dim, latent_dim), nn.Softmax(dim=1)).to(device)
+
+        self.optimizer = torch.optim.Adam(self.model.parameters())
+
+    def update(self):
+        pass
+
+    def predict_reward(self):
+        pass
+
+    def forward(self, state, action):
+        return self.model(torch.cat([state, action], dim=1))
+
+
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, file_name, num_trajectories=4, subsample_frequency=20):
         all_trajectories = torch.load(file_name)
@@ -161,8 +183,7 @@ class ExpertDataset(torch.utils.data.Dataset):
             self.get_idx.append((traj_idx, i))
 
             i += 1
-            
-            
+
     def __len__(self):
         return self.length
 

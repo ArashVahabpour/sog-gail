@@ -13,7 +13,7 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base=None, base_kwargs=None):
+    def __init__(self, obs_shape, action_space, env_name, base=None, base_kwargs=None):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
@@ -21,7 +21,10 @@ class Policy(nn.Module):
             if len(obs_shape) == 3:
                 base = CNNBase
             elif len(obs_shape) == 1:
-                base = MLPBase
+                if env_name == 'Circles-v0':
+                    base = CirclesMLPBase
+                else:
+                    raise NotImplementedError
             else:
                 raise NotImplementedError
 
@@ -51,8 +54,8 @@ class Policy(nn.Module):
     def forward(self, inputs, rnn_hxs, masks):
         raise NotImplementedError
 
-    def act(self, inputs, rnn_hxs, masks, deterministic=False):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+    def act(self, states, latent_codes, deterministic=False):
+        value, actor_features = self.base(states, latent_codes)
         dist = self.dist(actor_features)
 
         if deterministic:
@@ -63,7 +66,7 @@ class Policy(nn.Module):
         action_log_probs = dist.log_probs(action)
         dist_entropy = dist.entropy().mean()
 
-        return value, action, action_log_probs, rnn_hxs
+        return value, action, action_log_probs
 
     def get_value(self, inputs, rnn_hxs, masks):
         value, _, _ = self.base(inputs, rnn_hxs, masks)
@@ -227,3 +230,77 @@ class MLPBase(NNBase):
         hidden_actor = self.actor(x)
 
         return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs
+
+
+class CirclesMLPBase(NNBase):
+    # Multi-Layer Perceptron (Fully Connected) Model Used in InfoGAIL paper
+    # https://arxiv.org/pdf/1703.08840.pdf ---> Appendix A
+    def __init__(self, state_dim, recurrent=False, hidden_size=128):
+        super().__init__(False, state_dim, hidden_size)
+
+        print(f'DEBUG: verify that {hidden_size} = 128')
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
+                               constant_(x, 0), np.sqrt(2))
+
+        self.activation = nn.LeakyReLU()
+
+        self.actor_state_encoder = nn.Sequential(
+            init_(torch.nn.Linear(state_dim, 128)),
+            self.activation,
+            init_(torch.nn.Linear(128, 128)),
+        )
+
+        self.actor_latent_encoder = torch.nn.Linear(args.latent_size, 128)
+
+        # self.actor_decoder = nn.Sequential(
+        #     activation,
+        #     init_(torch.nn.Linear(128, action_dim)),
+        #     last_activation,
+        # )
+
+
+        # self.actor = nn.Sequential(
+        #     init_(nn.Linear(num_inputs, hidden_size)), activation,
+        #     init_(nn.Linear(hidden_size, hidden_size)), activation)
+
+        self.critic = nn.Sequential(
+            init_(nn.Linear(state_dim, hidden_size)), self.activation,
+            init_(nn.Linear(hidden_size, hidden_size)), self.activation)
+
+        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+
+        self.train()
+
+    def forward(self, states, latent_codes):
+        hidden_critic = self.critic(states)
+        hidden_actor = self.activation(self.actor_state_encoder(states) + self.actor_latent_encoder(latent_codes))
+
+        return self.critic_linear(hidden_critic), hidden_actor
+
+
+class Discriminator(nn.Module):
+    # Multi-Layer Perceptron (Fully Connected) Model Used in InfoGAIL paper
+    # https://arxiv.org/pdf/1703.08840.pdf ---> Appendix A
+
+    def __init__(self, opt):
+        super().__init__()
+
+        activation = nn.LeakyReLU()
+
+        self.encoder = nn.Sequential(
+            torch.nn.Linear(opt.state_dim + opt.action_dim, 128),
+            activation,
+            torch.nn.Linear(128, 128),
+        )
+
+        self.decoder = nn.Sequential(
+            activation,
+            torch.nn.Linear(128, 1),
+        )
+
+    def forward(self, states, actions):
+        return self.decoder(self.encoder(torch.cat([states, actions], dim=1)))
+
+
+class Posterior(nn.Module):
+    pass

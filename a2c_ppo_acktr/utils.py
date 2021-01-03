@@ -72,7 +72,7 @@ def cleanup_log_dir(log_dir):
 
 def visualize_env(args, actor_critic, epoch, num_steps=1000):
     # action_func: a function with input obs and output action
-    action_func = partial(actor_critic.act, rnn_hxs=None, masks=None)
+    action_func = partial(actor_critic.act, latent_codes=torch.eye(args.latent_size))
     device = next(actor_critic.parameters()).device
 
     if args.env_name == 'Circles-v0':
@@ -137,7 +137,7 @@ def resolve_latent_code(actor_critic, state, action, latent_size):
     with torch.no_grad():
         policy_action_all = actor_critic.act(all_state.reshape(batch_size * latent_batch_size, -1),
                                              all_z.reshape(batch_size * latent_batch_size, -1),
-                                             None, deterministic=True)[1].reshape(batch_size, latent_batch_size, -1)
+                                             deterministic=True)[1].reshape(batch_size, latent_batch_size, -1)
 
     # batch_size x latent_batch_size x action_dim
     loss = criterion(policy_action_all, all_action)

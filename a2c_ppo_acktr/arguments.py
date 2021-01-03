@@ -6,8 +6,6 @@ import os
 def get_args():
     parser = argparse.ArgumentParser(description='RL')
 
-
-
     parser.add_argument(
         '--name',
         type=str,
@@ -17,10 +15,6 @@ def get_args():
         '--which_epoch',
         type=str, default='latest',
         help='which epoch to load? set to latest to use latest cached model')
-
-
-
-
 
     parser.add_argument(
         '--algo', default='a2c', help='algorithm to use: a2c | ppo | acktr')
@@ -166,15 +160,23 @@ def get_args():
         action='store_true',
         default=False,
         help='use a linear schedule on the learning rate')
-    parser.add_argument(
-        '--radii',
-        type=str, default='-10,10,20',
-        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards.')
+
     parser.add_argument(
         '--env-name',
         type=str,
         default='Circles-v0',
         help='environment to train')
+    parser.add_argument(
+        '--radii',
+        type=str, default='-10,10,20',
+        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards.')
+    parser.add_argument(
+        '--bc-pretrain',
+        action='store_true',
+        default=False,
+        help='pretrain the generator with behavioral cloning before training'
+    )
+
 
     args = parser.parse_args()
 
