@@ -6,6 +6,7 @@ import os
 def get_args():
     parser = argparse.ArgumentParser(description='RL')
 
+    # checkpoint
     parser.add_argument(
         '--name',
         type=str,
@@ -16,13 +17,7 @@ def get_args():
         type=str, default='latest',
         help='which epoch to load? set to latest to use latest cached model')
 
-    parser.add_argument(
-        '--algo', default='a2c', help='algorithm to use: a2c | ppo | acktr')
-    parser.add_argument(
-        '--gail',
-        action='store_true',
-        default=False,
-        help='do imitation learning with gail')
+    # gail / ppo
     parser.add_argument(
         '--gail-experts-dir',
         default='./gail_experts',
@@ -151,16 +146,34 @@ def get_args():
         default=False,
         help='compute returns taking into account time limits')
     parser.add_argument(
-        '--recurrent-policy',
-        action='store_true',
-        default=False,
-        help='use a recurrent policy')
-    parser.add_argument(
         '--use-linear-lr-decay',
         action='store_true',
         default=False,
         help='use a linear schedule on the learning rate')
 
+    # infogail / sog-gail
+    parser.add_argument(
+        '--latent-dim',
+        type=int,
+        default=3,
+        help='dim of latent codes')
+    parser.add_argument(
+        '--bc-pretrain',
+        action='store_true',
+        default=False,
+        help='pretrain the generator with behavioral cloning before training')
+    parser.add_argument(
+        '--infogail',
+        action='store_true',
+        default=False,
+        help='use infogail model (additional posterior network)')
+    parser.add_argument(
+        '--sog-gail',
+        action='store_true',
+        default=False,
+        help='use sog-gail model (additional sog module)')
+
+    # custom envs
     parser.add_argument(
         '--env-name',
         type=str,
@@ -170,29 +183,21 @@ def get_args():
         '--radii',
         type=str, default='-10,10,20',
         help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards.')
-    parser.add_argument(
-        '--bc-pretrain',
-        action='store_true',
-        default=False,
-        help='pretrain the generator with behavioral cloning before training'
-    )
-
 
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+    args.device = torch.device('cuda' if args.cuda else 'cpu')
     args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
-
-    assert args.algo in ['a2c', 'ppo', 'acktr']
-    if args.recurrent_policy:
-        assert args.algo in ['a2c', 'ppo'], \
-            'Recurrent policy is not implemented for ACKTR'
 
     if args.env_name == 'Circles-v0':
         args.radii = [int(r) for r in args.radii.split(',')]
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
 
+    args.vanilla = not (args.infogail or args.sog_gail)
+    if args.infogail and args.sog_gail:
+        raise ValueError('cannot raise --infogail and --sog-gail flags concurrently.')
     # TODO Arash: separate away train/test options
 
     return args

@@ -1,3 +1,7 @@
+# Arash notes
+This repository is ... This is a generic code for gym environments with flat (1-dimensional) observation and action spaces.
+
+---
 # pytorch-a2c-ppo-acktr
 
 ## Please use hyper parameters from this readme. With other hyper parameters things might not work (it's RL after all)!

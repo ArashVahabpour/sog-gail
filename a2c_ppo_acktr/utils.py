@@ -70,9 +70,23 @@ def cleanup_log_dir(log_dir):
             os.remove(f)
 
 
+def generate_latent_codes(args, count=1):
+    """
+    Returns:
+        a row-wise one-hot tensor of shape `count x latent_dim` (or zeros in vanilla mode)
+    """
+    n = args.latent_dim
+    if args.vanilla:
+        return torch.zeros((count, n), device=args.device)
+    else:
+        return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
+
+
 def visualize_env(args, actor_critic, epoch, num_steps=1000):
     # action_func: a function with input obs and output action
-    action_func = partial(actor_critic.act, latent_codes=torch.eye(args.latent_size))
+    action_func = partial(actor_critic.act,
+                          latent_codes=generate_latent_codes(args),
+                          deterministic=True)
     device = next(actor_critic.parameters()).device
 
     if args.env_name == 'Circles-v0':
@@ -89,7 +103,7 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
         with torch.no_grad():
             # we have to consider an extra dimension 0 because the actor critic object works with environment vectors (see the training code)
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
-            _, actions_tensor, _, _ = action_func(obs_tensor)
+            _, _, actions_tensor, _ = action_func(obs_tensor)
             actions = actions_tensor[0].cpu().numpy()
 
         obs, _, done, _ = env.step(actions)
@@ -109,15 +123,6 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
             plt.close()
 
     env.close()
-
-
-def generate_latent_codes(args, count):
-    """
-    Returns:
-        a row-wise one-hot tensor of shape `count x latent_size`
-    """
-    n = args.latent_size
-    return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
 
 
 criterion = nn.MSELoss(reduction='none')

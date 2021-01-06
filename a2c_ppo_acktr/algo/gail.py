@@ -65,7 +65,7 @@ class Discriminator(nn.Module):
         n = 0
         for expert_batch, policy_batch in zip(expert_loader,
                                               policy_data_generator):
-            policy_state, policy_action = policy_batch[0], policy_batch[2]
+            policy_state, policy_latent_codes, policy_action = policy_batch[:3]
             policy_d = self.trunk(
                 torch.cat([policy_state, policy_action], dim=1))
 
