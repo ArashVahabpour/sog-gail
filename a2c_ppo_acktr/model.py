@@ -1,15 +1,9 @@
 import numpy as np
 import torch
 import torch.nn as nn
-# import torch.nn.functional as F
 
 from a2c_ppo_acktr.distributions import Bernoulli, Categorical, DiagGaussian
 from a2c_ppo_acktr.utils import init
-
-
-# class Flatten(nn.Module):
-#     def forward(self, x):
-#         return x.view(x.size(0), -1)
 
 
 class Policy(nn.Module):
@@ -17,7 +11,7 @@ class Policy(nn.Module):
         super(Policy, self).__init__()
         if args.env_name == 'Circles-v0':
             base = CirclesMLPBase
-            base = MLPBase
+            # base = MLPBase
         else:
             raise NotImplementedError
 
@@ -28,7 +22,7 @@ class Policy(nn.Module):
             self.dist = Categorical(self.base.output_size, num_outputs)
         elif action_space.__class__.__name__ == "Box":
             num_outputs = action_space.shape[0]
-            self.dist = DiagGaussian(self.base.output_size, num_outputs, args.max_ac_mag)
+            self.dist = DiagGaussian(self.base.output_size, num_outputs)
         elif action_space.__class__.__name__ == "MultiBinary":
             num_outputs = action_space.shape[0]
             self.dist = Bernoulli(self.base.output_size, num_outputs)
@@ -47,7 +41,7 @@ class Policy(nn.Module):
             action = dist.sample()
 
         action_log_probs = dist.log_probs(action)
-        dist_entropy = dist.entropy().mean()
+        # dist_entropy = dist.entropy().mean()
 
         return value, latent_codes, action, action_log_probs
 
@@ -175,66 +169,98 @@ class Policy(nn.Module):
 #         return self.critic_linear(x), x, rnn_hxs
 
 
-class MLPBase(nn.Module):
-    def __init__(self, num_inputs, latent_dim, hidden_size=64):
-        super(MLPBase, self).__init__()
-
-        self.output_size = hidden_size
-        self.is_recurrent = False
-
-        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
-                               constant_(x, 0), np.sqrt(2))
-
-        self.actor = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
-
-        self.critic = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
-
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
-
-        self.train()
-
-    def forward(self, inputs, rnn_hxs, masks=None):
-        x = inputs
-
-        if self.is_recurrent:
-            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-
-        hidden_critic = self.critic(x)
-        hidden_actor = self.actor(x)
-
-        return self.critic_linear(hidden_critic), hidden_actor
+# class MLPBase(nn.Module):
+#     def __init__(self, num_inputs, latent_dim, hidden_size=64):
+#         super(MLPBase, self).__init__()
+#
+#         self.output_size = hidden_size
+#         self.is_recurrent = False
+#
+#         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
+#                                constant_(x, 0), np.sqrt(2))
+#
+#         self.actor = nn.Sequential(
+#             init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
+#             init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
+#
+#         self.critic = nn.Sequential(
+#             init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
+#             init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
+#
+#         self.critic_linear = init_(nn.Linear(hidden_size, 1))
+#
+#         self.train()
+#
+#     def forward(self, inputs, rnn_hxs, masks=None):
+#         x = inputs
+#
+#         if self.is_recurrent:
+#             x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+#
+#         hidden_critic = self.critic(x)
+#         hidden_actor = self.actor(x)
+#
+#         return self.critic_linear(hidden_critic), hidden_actor
+#
+#
+# class CirclesMLPBase(nn.Module):
+#     """
+#     Multi-Layer Perceptron (Fully Connected) Model Used in InfoGAIL paper
+#     https://arxiv.org/pdf/1703.08840.pdf ---> Appendix A
+#     """
+#
+#     def __init__(self, state_dim, latent_dim, hidden_size=64):
+#         super().__init__()
+#
+#         self.output_size = hidden_size
+#         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
+#                                constant_(x, 0), np.sqrt(2))
+#
+#         self.actor_state_encoder = nn.Sequential(
+#             init_(nn.Linear(state_dim, hidden_size)), nn.Tanh(),
+#             init_(nn.Linear(hidden_size, hidden_size)))
+#
+#         self.actor_latent_encoder = init_(nn.Linear(latent_dim, hidden_size))
+#
+#         self.critic = nn.Sequential(
+#             init_(nn.Linear(state_dim, hidden_size)), nn.Tanh(),
+#             init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
+#
+#         self.actor_nonlinearity = nn.Tanh()
+#         self.critic_linear = init_(nn.Linear(hidden_size, 1))
+#
+#         self.train()
+#
+#     def forward(self, states, latent_codes):
+#         hidden_critic = self.critic(states)
+#         hidden_actor = self.actor_nonlinearity(self.actor_state_encoder(states) +
+#                                                self.actor_latent_encoder(latent_codes))
+#
+#         return self.critic_linear(hidden_critic), hidden_actor
 
 
 class CirclesMLPBase(nn.Module):
-    """
-    Multi-Layer Perceptron (Fully Connected) Model Used in InfoGAIL paper
-    https://arxiv.org/pdf/1703.08840.pdf ---> Appendix A
-    """
-
     def __init__(self, state_dim, latent_dim, hidden_size=128):
         super().__init__()
 
         self.output_size = hidden_size
+
         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
                                constant_(x, 0), np.sqrt(2))
 
-        self.activation = nn.LeakyReLU()
+        self.actor_states = nn.Sequential(
+            init_(nn.Linear(state_dim, hidden_size)), nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)))
 
-        self.actor_state_encoder = nn.Sequential(
-            init_(torch.nn.Linear(state_dim, 128)),
-            self.activation,
-            init_(torch.nn.Linear(128, 128)),
+        self.actor_latent = nn.Sequential(
+            init_(nn.Linear(latent_dim, hidden_size))
         )
 
-        self.actor_latent_encoder = torch.nn.Linear(latent_dim, 128)
+        self.actor_nonlinearity = nn.Tanh()
 
         self.critic = nn.Sequential(
-            init_(nn.Linear(state_dim, hidden_size)), self.activation,
-            init_(nn.Linear(hidden_size, hidden_size)), self.activation)
+            init_(nn.Linear(state_dim, hidden_size)), nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
 
         self.critic_linear = init_(nn.Linear(hidden_size, 1))
 
@@ -242,7 +268,7 @@ class CirclesMLPBase(nn.Module):
 
     def forward(self, states, latent_codes):
         hidden_critic = self.critic(states)
-        hidden_actor = self.activation(self.actor_state_encoder(states) + self.actor_latent_encoder(latent_codes))
+        hidden_actor = self.actor_nonlinearity(self.actor_states(states) + self.actor_latent(latent_codes))
 
         return self.critic_linear(hidden_critic), hidden_actor
 

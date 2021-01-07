@@ -1,7 +1,5 @@
 import glob
 import os
-from functools import partial
-
 import torch
 import torch.nn as nn
 import gym
@@ -83,10 +81,6 @@ def generate_latent_codes(args, count=1):
 
 
 def visualize_env(args, actor_critic, epoch, num_steps=1000):
-    # action_func: a function with input obs and output action
-    action_func = partial(actor_critic.act,
-                          latent_codes=generate_latent_codes(args),
-                          deterministic=True)
     device = next(actor_critic.parameters()).device
 
     if args.env_name == 'Circles-v0':
@@ -103,7 +97,7 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
         with torch.no_grad():
             # we have to consider an extra dimension 0 because the actor critic object works with environment vectors (see the training code)
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
-            _, _, actions_tensor, _ = action_func(obs_tensor)
+            _, _, actions_tensor, _ = actor_critic.act(obs_tensor, generate_latent_codes(args), deterministic=True)
             actions = actions_tensor[0].cpu().numpy()
 
         obs, _, done, _ = env.step(actions)
