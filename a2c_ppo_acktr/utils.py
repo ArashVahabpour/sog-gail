@@ -74,9 +74,10 @@ def generate_latent_codes(args, count=1):
         a row-wise one-hot tensor of shape `count x latent_dim` (or zeros in vanilla mode)
     """
     n = args.latent_dim
-    if args.vanilla:
-        return torch.zeros((count, n), device=args.device)
-    else:
+    # if args.vanilla:
+    #     return torch.zeros((count, n), device=args.device)
+    # else:
+    if True:
         return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
 
 

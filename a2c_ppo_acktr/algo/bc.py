@@ -1,2 +1,2 @@
-def pretrain():
-    raise NotImplementedError
+def pretrain(actor_critic, args):
+    pass

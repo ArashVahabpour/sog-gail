@@ -1,16 +1,10 @@
-import copy
-import glob
 import os
 import time
 from collections import deque
 from tqdm import tqdm
 
-import gym
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
 from a2c_ppo_acktr import algo, utils
 from a2c_ppo_acktr.algo import gail, bc
@@ -36,8 +30,11 @@ def main():
     utils.cleanup_log_dir(log_dir)
     utils.cleanup_log_dir(eval_log_dir)
 
-    os.makedirs(args.results_dir, exist_ok=True)
     save_path = os.path.join(args.save_dir, args.name)  # directory to store network weights
+    save_file_path = os.path.join(save_path, '{}_{}.pt')
+    os.makedirs(save_path, exist_ok=True)
+
+    os.makedirs(args.results_dir, exist_ok=True)
 
     torch.set_num_threads(1)
     device = args.device
@@ -52,7 +49,7 @@ def main():
     actor_critic.to(device)
 
     if args.bc_pretrain:
-        bc.pretrain()
+        bc.pretrain(actor_critic, args)
 
     agent = algo.PPO(
         actor_critic,
@@ -153,16 +150,11 @@ def main():
         # save for every interval-th episode or for the last epoch
         if (j % args.save_interval == 0
                 or j == num_updates - 1) and args.save_dir != "":
-            try:
-                os.makedirs(save_path)
-            except OSError:
-                pass
-
             for epoch in [args.which_epoch, 'latest']:
                 torch.save([
                     actor_critic,
                     getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
-                ], os.path.join(save_path, f'{args.env_name}_{epoch}.pt'))
+                ], save_file_path.format(args.env_name, epoch))
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_processes * args.num_steps

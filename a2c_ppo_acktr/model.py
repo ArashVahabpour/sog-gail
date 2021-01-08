@@ -11,7 +11,6 @@ class Policy(nn.Module):
         super(Policy, self).__init__()
         if args.env_name == 'Circles-v0':
             base = CirclesMLPBase
-            # base = MLPBase
         else:
             raise NotImplementedError
 
