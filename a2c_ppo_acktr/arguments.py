@@ -23,6 +23,10 @@ def get_args():
         default='./gail_experts',
         help='directory that contains expert demonstrations for gail')
     parser.add_argument(
+        '--gail-expert-filename',
+        default=None,
+        help='file name for expert demonstrations for gail')
+    parser.add_argument(
         '--gail-batch-size',
         type=int,
         default=128,

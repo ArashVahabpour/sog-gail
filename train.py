@@ -68,12 +68,11 @@ def main():
     discr = gail.Discriminator(
         envs.observation_space.shape[0] + envs.action_space.shape[0], 128,
         device)
-    file_name = os.path.join(
-        args.gail_experts_dir, "trajs_{}.pt".format(
-            args.env_name.split('-')[0].lower()))
 
-    expert_dataset = gail.ExpertDataset(
-        file_name, num_trajectories=None, subsample_frequency=20)
+    gail_expert_filename = "trajs_{}.pt" if args.gail_expert_filename is None else args.gail_expert_filename
+    file_name = os.path.join(args.gail_experts_dir,
+                             gail_expert_filename.format(args.env_name.split('-')[0].lower()))
+    expert_dataset = gail.ExpertDataset(file_name, num_trajectories=None, subsample_frequency=20)
     drop_last = len(expert_dataset) > args.gail_batch_size
     gail_train_loader = torch.utils.data.DataLoader(
         dataset=expert_dataset,
