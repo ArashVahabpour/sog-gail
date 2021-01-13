@@ -134,8 +134,8 @@ class Posterior(nn.Module):
         self.optimizer = torch.optim.Adam(self.model.parameters())
         self.batch_size = args.gail_batch_size
 
-        self.returns = None
-        self.ret_rms = RunningMeanStd(shape=())
+        # self.returns = None
+        # self.ret_rms = RunningMeanStd(shape=())
 
     @staticmethod
     def create_model(input_dim, hidden_dim, latent_dim, device):
@@ -182,13 +182,13 @@ class Posterior(nn.Module):
             p = self.model_target(torch.cat([state, action], dim=1))
             reward = -self.categorical_cross_entropy(p, latent_code)
 
-            if self.returns is None:
-                self.returns = reward.clone()
+            # if self.returns is None:
+            #     self.returns = reward.clone()
+            #
+            # self.returns = self.returns * masks * gamma + reward
+            # self.ret_rms.update(self.returns.cpu().numpy())
 
-            self.returns = self.returns * masks * gamma + reward
-            self.ret_rms.update(self.returns.cpu().numpy())
-
-            return reward / np.sqrt(self.ret_rms.var[0] + 1e-8)
+            return reward  # / np.sqrt(self.ret_rms.var[0] + 1e-8)
 
     def forward(self, state, action):
         return self.model(torch.cat([state, action], dim=1))
