@@ -1,28 +1,30 @@
-import h5py
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data
+from torch.optim import RMSprop, Adam
 from torch import autograd
 
 from baselines.common.running_mean_std import RunningMeanStd
 
 
 class Discriminator(nn.Module):
-    def __init__(self, input_dim, hidden_dim, device):
+    def __init__(self, input_dim, hidden_dim, args):
         super(Discriminator, self).__init__()
 
-        self.device = device
+        self.args = args
+        self.device = args.device
 
         self.trunk = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
-            nn.Linear(hidden_dim, 1)).to(device)
+            nn.Linear(hidden_dim, 1)).to(self.device)
 
         self.trunk.train()
 
-        self.optimizer = torch.optim.Adam(self.trunk.parameters())
+        optimizer = RMSprop if args.infogail else Adam
+        self.optimizer = optimizer(self.trunk.parameters())
 
         self.returns = None
         self.ret_rms = RunningMeanStd(shape=())
@@ -76,12 +78,16 @@ class Discriminator(nn.Module):
             expert_d = self.trunk(
                 torch.cat([expert_state, expert_action], dim=1))
 
-            expert_loss = F.binary_cross_entropy_with_logits(
-                expert_d,
-                torch.ones(expert_d.size()).to(self.device))
-            policy_loss = F.binary_cross_entropy_with_logits(
-                policy_d,
-                torch.zeros(policy_d.size()).to(self.device))
+            if self.args.wasserstein:
+                expert_loss = expert_d.mean()
+                policy_loss = -policy_d.mean()
+            else:
+                expert_loss = F.binary_cross_entropy_with_logits(
+                    expert_d,
+                    torch.ones(expert_d.size()).to(self.device))
+                policy_loss = F.binary_cross_entropy_with_logits(
+                    policy_d,
+                    torch.zeros(policy_d.size()).to(self.device))
 
             gail_loss = expert_loss + policy_loss
             grad_pen = self.compute_grad_pen(expert_state, expert_action,
@@ -93,14 +99,23 @@ class Discriminator(nn.Module):
             self.optimizer.zero_grad()
             (gail_loss + grad_pen).backward()
             self.optimizer.step()
+
+            if self.args.wasserstein:
+                self.clip_weights()
         return loss / n
+
+    def clip_weights(self):
+        for param in self.parameters():
+            with torch.no_grad():
+                param.clamp_(-0.01, 0.01)
 
     def predict_reward(self, state, action, gamma, masks, update_rms=True):
         with torch.no_grad():
             self.eval()
             d = self.trunk(torch.cat([state, action], dim=1))
             s = torch.sigmoid(d)
-            reward = s.log() - (1 - s).log()
+            reward = -d if self.args.wasserstein else s.log() - (1 - s).log()
+
             if self.returns is None:
                 self.returns = reward.clone()
 
@@ -113,21 +128,67 @@ class Discriminator(nn.Module):
 
 # Specific to InfoGAIL
 class Posterior(nn.Module):
-    def __init__(self, input_dim, hidden_dim, latent_dim, device):
+    def __init__(self, input_dim, hidden_dim, args):
         super().__init__()
+        self.model, self.model_target = [self.create_model(input_dim, hidden_dim, args.latent_dim, args.device) for _ in range(2)]
+        self.optimizer = torch.optim.Adam(self.model.parameters())
+        self.batch_size = args.gail_batch_size
 
-        self.model = nn.Sequential(
+        self.returns = None
+        self.ret_rms = RunningMeanStd(shape=())
+
+    @staticmethod
+    def create_model(input_dim, hidden_dim, latent_dim, device):
+        return nn.Sequential(
             nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
             nn.Linear(hidden_dim, latent_dim), nn.Softmax(dim=1)).to(device)
 
-        self.optimizer = torch.optim.Adam(self.model.parameters())
+    @staticmethod
+    def categorical_cross_entropy(pred, target):
+        return -(pred.log() * target).sum(dim=1).mean()
 
-    def update(self):
-        pass
+    def update(self, rollouts):
+        self.train()
 
-    def predict_reward(self):
-        pass
+        policy_data_generator = rollouts.feed_forward_generator(None, mini_batch_size=self.batch_size)
+
+        total_loss = 0
+        n = 0
+        for policy_batch in policy_data_generator:
+            state, latent_code, action = policy_batch[:3]
+            p = self.model(torch.cat([state, action], dim=1))
+
+            loss = self.categorical_cross_entropy(p, latent_code)
+
+            total_loss += loss.item()
+            n += 1
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+            # soft update
+            tau = 0.5
+            for param, target_param in zip(self.model.parameters(), self.model_target.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+        return total_loss / n
+
+    def predict_reward(self, state, latent_code, action, gamma, masks):
+        with torch.no_grad():
+            self.eval()
+
+            p = self.model_target(torch.cat([state, action], dim=1))
+            reward = -self.categorical_cross_entropy(p, latent_code)
+
+            if self.returns is None:
+                self.returns = reward.clone()
+
+            self.returns = self.returns * masks * gamma + reward
+            self.ret_rms.update(self.returns.cpu().numpy())
+
+            return reward / np.sqrt(self.ret_rms.var[0] + 1e-8)
 
     def forward(self, state, action):
         return self.model(torch.cat([state, action], dim=1))

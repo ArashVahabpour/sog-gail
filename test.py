@@ -10,7 +10,7 @@ args = get_args()
 args.is_train = False
 
 load_path = os.path.join(args.save_dir, args.name)
-actor_critic, _ = torch.load(os.path.join(load_path, f'{args.env_name}_{args.which_epoch}.pt'))
+actor_critic, _, _, _ = torch.load(os.path.join(load_path, f'{args.env_name}_{args.which_epoch}.pt'))
 
 os.makedirs(args.results_dir, exist_ok=True)
 

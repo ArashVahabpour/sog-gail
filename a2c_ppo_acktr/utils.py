@@ -71,91 +71,61 @@ def cleanup_log_dir(log_dir):
 def generate_latent_codes(args, count=1):
     """
     Returns:
-        a row-wise one-hot tensor of shape `count x latent_dim` (or zeros in vanilla mode)
+        a random row-wise-one-hot tensor of shape `count x latent_dim`
     """
     n = args.latent_dim
-    # if args.vanilla:
-    #     return torch.zeros((count, n), device=args.device)
-    # else:
-    if True:
-        return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
+    return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
 
 
 def visualize_env(args, actor_critic, epoch, num_steps=1000):
-    device = next(actor_critic.parameters()).device
+    plt.figure(figsize=(10, 20))
+    plt.set_cmap('gist_rainbow')
 
+    # plotting the actual circles
+    for r in args.radii:
+        t = np.linspace(0, 2 * np.pi, 200)
+        plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
+    max_r = np.max(np.abs(args.radii))
+    plt.axis('equal')
+    plt.axis('off')
+    plt.xlim([-max_r, max_r])
+    plt.ylim([-2 * max_r, 2 * max_r])
+
+    # preparing the environment
+    device = next(actor_critic.parameters()).device
     if args.env_name == 'Circles-v0':
         import gym_sog
         env = gym.make(args.env_name, args=args)
     else:
         env = gym.make(args.env_name)
-
     obs = env.reset()
 
-    filename = os.path.join(args.results_dir, f'{epoch}.png')
+    # generate rollouts and plot them
+    for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
+        latent_code = latent_code.unsqueeze(0)
 
-    for i in range(num_steps):
-        with torch.no_grad():
-            # we have to consider an extra dimension 0 because the actor critic object works with environment vectors (see the training code)
-            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
-            _, _, actions_tensor, _ = actor_critic.act(obs_tensor, generate_latent_codes(args), deterministic=True)
-            actions = actions_tensor[0].cpu().numpy()
+        for i in range(num_steps):
+            # randomize latent code at each step in case of vanilla gail
+            if args.vanilla:
+                latent_code = generate_latent_codes(args)
+            # interacting with env
+            with torch.no_grad():
+                # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
+                obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
+                _, actions_tensor, _ = actor_critic.act(obs_tensor, latent_code, deterministic=True)
+                action = actions_tensor[0].cpu().numpy()
+            obs, _, _, _ = env.step(action)
 
-        obs, _, done, _ = env.step(actions)
-
-        if i == num_steps - 1:
-            plt.figure(figsize=(10, 20))
-            plt.plot(env.loc_history[:, 0], env.loc_history[:, 1])
-            for r in args.radii:
-                t = np.linspace(0, 2 * np.pi, 200)
-                plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
-            max_r = np.max(np.abs(args.radii))
-            plt.axis('equal')
-            plt.axis('off')
-            plt.xlim([-max_r, max_r])
-            plt.ylim([-2 * max_r, 2 * max_r])
-            plt.savefig(filename)
-            plt.close()
+        # plotting the trajectory
+        plt.plot(env.loc_history[:, 0], env.loc_history[:, 1], color=plt.cm.Dark2.colors[j])
+        if args.vanilla:
+            break  # one trajectory in vanilla mode is enough. if not, then rollout for each separate latent code
+        else:
+            obs = env.reset()
 
     env.close()
 
+    filename = os.path.join(args.results_dir, f'{epoch}.png')
+    plt.savefig(filename)
+    plt.close()
 
-criterion = nn.MSELoss(reduction='none')
-
-
-def resolve_latent_code(actor_critic, state, action, latent_size):
-    batch_size = len(state)
-    latent_batch_size = latent_size
-
-    device = state.device
-
-    # batch_size x latent_batch_size x variable_dim
-    all_z = torch.eye(latent_size, device=device).unsqueeze(0).expand(batch_size, -1, -1)
-    all_state = state.unsqueeze(1).expand(-1, latent_batch_size, -1)
-    all_action = action.unsqueeze(1).expand(-1, latent_batch_size, -1)
-
-    with torch.no_grad():
-        policy_action_all = actor_critic.act(all_state.reshape(batch_size * latent_batch_size, -1),
-                                             all_z.reshape(batch_size * latent_batch_size, -1),
-                                             deterministic=True)[1].reshape(batch_size, latent_batch_size, -1)
-
-    # batch_size x latent_batch_size x action_dim
-    loss = criterion(policy_action_all, all_action)
-
-    # batch_size x latent_batch_size
-    loss = loss.mean(dim=2)
-
-    # batch_size
-    _, argmin = loss.min(dim=1)
-
-    # new_z: batch_size x latent_batch_size x n_latent
-    # best_idx: batch_size x 1 x n_latent
-    best_idx = argmin[:, None, None].repeat(1, 1, latent_size)
-
-    # batch_size x 1 x n_latent
-    best_z = torch.gather(all_z, 1, best_idx)
-
-    # batch_size x n_latent
-    best_z = best_z.squeeze(1)
-
-    return best_z

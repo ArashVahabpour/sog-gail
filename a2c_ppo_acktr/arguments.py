@@ -17,15 +17,24 @@ def get_args():
         type=str, default='latest',
         help='which epoch to load? set to latest to use latest cached model')
 
+    # behavioral cloning
+    parser.add_argument(
+        '--bc-batch-size',
+        type=int,
+        default=64,
+        help='behavioral cloning batch size (default: 64)')
+    parser.add_argument(
+        '--bc-epoch',
+        type=int,
+        default=100,
+        help='number of behavioral cloning epochs (default: 100)')
+
     # gail / ppo
     parser.add_argument(
         '--gail-experts-dir',
         default='./gail_experts',
         help='directory that contains expert demonstrations for gail')
-    parser.add_argument(
-        '--gail-expert-filename',
-        default=None,
-        help='file name for expert demonstrations for gail')
+
     parser.add_argument(
         '--gail-batch-size',
         type=int,
@@ -82,11 +91,6 @@ def get_args():
         action='store_true',
         default=False,
         help="sets flags for determinism when using CUDA (potentially slow!)")
-    parser.add_argument(
-        '--num-processes',
-        type=int,
-        default=16,
-        help='how many training CPU processes to use (default: 16)')
     parser.add_argument(
         '--num-steps',
         type=int,
@@ -145,6 +149,12 @@ def get_args():
         default=False,
         help='disables CUDA training')
     parser.add_argument(
+        '--gpu-id',
+        type=int,
+        default=0,
+        help='gpu id to use'
+    )
+    parser.add_argument(
         '--use-proper-time-limits',
         action='store_true',
         default=False,
@@ -176,6 +186,27 @@ def get_args():
         action='store_true',
         default=False,
         help='use sog-gail model (additional sog module)')
+    parser.add_argument(
+        '--sog-gail-coef',
+        type=float,
+        default=0.01,
+        help='sog-gail term coefficient (default: 0.01)')
+    parser.add_argument(
+        '--infogail-coef',
+        type=float,
+        default=0.1,
+        help='mutual entropy lower bound coefficient (default: 0.1)')
+
+    parser.add_argument(
+        '--adjust-scale',
+        action='store_true',
+        default=False,
+        help='add a non-linearity to the final layer of generator, giving some boost in performance in sog-gail')
+    parser.add_argument(
+        '--wasserstein',
+        action='store_true',
+        default=False,
+        help='use wasserstein loss for discriminator as advised by infogail paper')
 
     # custom envs
     parser.add_argument(
@@ -191,6 +222,7 @@ def get_args():
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.cuda.set_device(args.gpu_id)
     args.device = torch.device('cuda' if args.cuda else 'cpu')
     args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
 
@@ -202,6 +234,9 @@ def get_args():
     args.vanilla = not (args.infogail or args.sog_gail)
     if args.infogail and args.sog_gail:
         raise ValueError('cannot raise --infogail and --sog-gail flags concurrently.')
+    # args.adjust_scale |= args.sog_gail
+    # args.wasserstein |= args.infogail
+
     # TODO Arash: separate away train/test options
 
     return args
