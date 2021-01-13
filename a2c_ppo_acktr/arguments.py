@@ -182,6 +182,11 @@ def get_args():
         default=False,
         help='use infogail model (additional posterior network)')
     parser.add_argument(
+        '--infogail-coef',
+        type=float,
+        default=0.1,
+        help='mutual entropy lower bound coefficient (default: 0.1)')
+    parser.add_argument(
         '--sog-gail',
         action='store_true',
         default=False,
@@ -191,12 +196,7 @@ def get_args():
         type=float,
         default=0.01,
         help='sog-gail term coefficient (default: 0.01)')
-    parser.add_argument(
-        '--infogail-coef',
-        type=float,
-        default=0.1,
-        help='mutual entropy lower bound coefficient (default: 0.1)')
-
+    
     parser.add_argument(
         '--adjust-scale',
         action='store_true',
@@ -222,7 +222,8 @@ def get_args():
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
-    torch.cuda.set_device(args.gpu_id)
+    if args.cuda:
+        torch.cuda.set_device(args.gpu_id)
     args.device = torch.device('cuda' if args.cuda else 'cpu')
     args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
 

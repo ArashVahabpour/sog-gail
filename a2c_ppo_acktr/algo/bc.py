@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 import os
 from ..utils import generate_latent_codes
 from tqdm import tqdm
@@ -12,11 +13,11 @@ class BC:
     Behavioral cloning pretraining of the model, in a conventional way or with SOG
     """
     def __init__(self, agent, save_filename, expert_filename, args):
+        self.args = args
         self.save_filename = save_filename
         self.data_loader = self.create_data_loader(expert_filename)
         self.actor_critic = agent.actor_critic
         self.sog = agent.sog
-        self.args = args
 
     @staticmethod
     def flatten(x):
@@ -34,7 +35,7 @@ class BC:
     def pretrain(self):
         actor_critic = self.actor_critic
         device = self.args.device
-        epochs = self.args.bc_batch_size
+        epochs = self.args.bc_epoch
 
         if os.path.exists(self.save_filename):
             actor_critic.load_state_dict(torch.load(self.save_filename).state_dict())
@@ -47,15 +48,15 @@ class BC:
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.actor_critic.parameters())
 
-        for epoch in tqdm(range(self.args.epochs)):
+        for epoch in tqdm(range(1, epochs + 1)):
             for _, (data_x, data_y) in enumerate(self.data_loader):
                 data_x = data_x.to(device)
                 data_y = data_y.to(device)
 
-                if self.args.vanilla:
+                if not self.args.sog_gail:
                     latent_codes = generate_latent_codes(self.args, data_x.shape[0]).to(device)
                 else:
-                    raise NotImplementedError('to implement resolving of the best latent code via sog')
+                    latent_codes = self.sog.resolve_latent_code(data_x, data_y)
                 # update generator weights
                 optimizer.zero_grad()
                 _, y, _ = actor_critic.act(data_x, latent_codes, deterministic=True)
@@ -66,7 +67,6 @@ class BC:
 
             # end of epoch
             if epoch % (epochs//10) == 0:  # every 10%
-                print(f'End of pretraining epoch {epoch}, loss={torch.cat(losses) / len(losses)}')
-
+                print(f'End of pretraining epoch {epoch}, loss={np.mean(losses) / len(losses):.3e}')
         # save
         torch.save(self.actor_critic, self.save_filename)

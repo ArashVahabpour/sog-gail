@@ -146,7 +146,8 @@ class Posterior(nn.Module):
 
     @staticmethod
     def categorical_cross_entropy(pred, target):
-        return -(pred * target).sum(dim=1).log().mean()
+        eps = 1e-8  # to avoid numerical instability at log(0)
+        return -((pred + eps) * target).sum(dim=1).log().mean()
 
     def update(self, rollouts):
         self.train()

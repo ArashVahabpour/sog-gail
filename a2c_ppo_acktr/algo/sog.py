@@ -14,11 +14,11 @@ class SOG:
         self.criterion_no_reduction = nn.MSELoss(reduction='none')
 
     def predict_loss(self, expert_state, expert_action):
-        latent_code = self._resolve_latent_code(expert_state, expert_action)
+        latent_code = self.resolve_latent_code(expert_state, expert_action)
         _, action, _ = self.actor_critic.act(expert_state, latent_code, deterministic=True)
         return self.criterion(action, expert_action)
 
-    def _resolve_latent_code(self, state, action):
+    def resolve_latent_code(self, state, action):
         batch_size = len(state)
         latent_batch_size = self.latent_dim
 
