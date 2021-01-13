@@ -23,7 +23,7 @@ class Discriminator(nn.Module):
 
         self.trunk.train()
 
-        optimizer = RMSprop if args.wassertein else Adam
+        optimizer = RMSprop if args.wasserstein else Adam
         self.optimizer = optimizer(self.trunk.parameters())
 
         self.returns = None
