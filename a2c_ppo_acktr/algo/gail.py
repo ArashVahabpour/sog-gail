@@ -23,7 +23,7 @@ class Discriminator(nn.Module):
 
         self.trunk.train()
 
-        optimizer = RMSprop if args.infogail else Adam
+        optimizer = RMSprop if args.wasserstein else Adam
         self.optimizer = optimizer(self.trunk.parameters())
 
         self.returns = None
@@ -146,7 +146,7 @@ class Posterior(nn.Module):
 
     @staticmethod
     def categorical_cross_entropy(pred, target):
-        return -(pred.log() * target).sum(dim=1).mean()
+        return -(pred * target).sum(dim=1).log().mean()
 
     def update(self, rollouts):
         self.train()
