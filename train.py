@@ -172,7 +172,7 @@ def main():
         ### save for every interval-th episode or for the last epoch
         if (j % args.save_interval == 0
                 or j == num_updates - 1) and args.save_dir != "":
-            for epoch in [args.which_epoch, 'latest']:
+            for epoch in [j, 'latest']:
                 torch.save([
                     actor_critic,
                     discr,
