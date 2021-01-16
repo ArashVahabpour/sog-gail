@@ -8,7 +8,7 @@ Continuous latent spaces not implemented
 
 ## Requirements
 
-* Python 3 (it might work with Python 2, but I didn't test it)
+* Python 3
 * [PyTorch](http://pytorch.org/)
 * [OpenAI baselines](https://github.com/openai/baselines)
 
