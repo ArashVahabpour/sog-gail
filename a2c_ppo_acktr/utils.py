@@ -81,10 +81,18 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
     plt.figure(figsize=(10, 20))
     plt.set_cmap('gist_rainbow')
 
-    # plotting the actual circles
-    for r in args.radii:
-        t = np.linspace(0, 2 * np.pi, 200)
-        plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
+    # plotting the actual circles/ellipses
+    if args.env_name == 'Circles-v0':
+        for r in args.radii:
+            t = np.linspace(0, 2 * np.pi, 200)
+            plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
+    elif args.env_name == 'Ellipses-v0':
+        for rx, ry in np.array(args.radii).reshape(-1, 2):
+            t = np.linspace(0, 2 * np.pi, 200)
+            plt.plot(rx * np.cos(t), ry * np.sin(t) + ry, color='#d0d0d0')
+    else:
+        raise NotImplementedError
+
     max_r = np.max(np.abs(args.radii))
     plt.axis('equal')
     plt.axis('off')

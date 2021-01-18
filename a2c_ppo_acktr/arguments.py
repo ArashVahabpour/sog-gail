@@ -196,6 +196,11 @@ def get_args():
         type=float,
         default=0.01,
         help='sog-gail term coefficient (default: 0.01)')
+    parser.add_argument(
+        '--shared-code',
+        action='store_true',
+        default=False,
+        help='use a shared latent code for each expert trajectory in sog-gail model')
 
     parser.add_argument(
         '--adjust-scale',
