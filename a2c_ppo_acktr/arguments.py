@@ -200,7 +200,7 @@ def get_args():
         '--shared-code',
         action='store_true',
         default=False,
-        help='use a shared latent code for each expert trajectory in sog-gail model')
+        help='solve for a "shared" latent code for expert trajectories, in sog-gail model')
 
     parser.add_argument(
         '--adjust-scale',

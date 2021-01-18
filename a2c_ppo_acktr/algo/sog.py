@@ -10,6 +10,7 @@ class SOG:
         self.actor_critic = actor_critic
         self.device = args.device
         self.latent_dim = args.latent_dim
+        self.shared_code = args.shared_code
         self.criterion = nn.MSELoss()
         self.criterion_no_reduction = nn.MSELoss(reduction='none')
 
@@ -39,6 +40,10 @@ class SOG:
 
         # batch_size x latent_batch_size
         loss = loss.mean(dim=2)
+
+        # batch_size x latent_batch_size
+        if self.shared_code:
+            loss = loss.mean(dim=0)[None].expand(batch_size, -1)
 
         # batch_size
         _, argmin = loss.min(dim=1)

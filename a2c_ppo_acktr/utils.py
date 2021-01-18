@@ -137,3 +137,22 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
     plt.savefig(filename)
     plt.close()
 
+
+def shared_traj_loader(expert_filename, batch_size):
+    """
+    a generator that returns (s, a) samples of a shared sample trajectory
+
+    Args:
+        expert_filename: expert file name which contains the following tensors
+            states: tensor of size `num_trajs x num_steps x state_dim`
+            actions: tensor of size `num_trajs x num_steps x action_dim`
+        batch_size: size of batches to return
+    """
+
+    expert = torch.load(expert_filename)
+    states, actions = expert['states'], expert['actions']
+
+    while True:
+        traj_idx = np.random.randint(states.shape[0])
+        step_idx = np.random.randint(low=0, high=states.shape[1], size=batch_size)
+        yield states[traj_idx, step_idx], actions[traj_idx, step_idx]
