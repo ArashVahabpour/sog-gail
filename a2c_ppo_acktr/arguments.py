@@ -196,7 +196,7 @@ def get_args():
         type=float,
         default=0.01,
         help='sog-gail term coefficient (default: 0.01)')
-    
+
     parser.add_argument(
         '--adjust-scale',
         action='store_true',
@@ -227,7 +227,7 @@ def get_args():
     args.device = torch.device('cuda' if args.cuda else 'cpu')
     args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
 
-    if args.env_name == 'Circles-v0':
+    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
         args.radii = [int(r) for r in args.radii.split(',')]
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
