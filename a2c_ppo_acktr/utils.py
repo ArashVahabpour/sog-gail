@@ -93,7 +93,7 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
 
     # preparing the environment
     device = next(actor_critic.parameters()).device
-    if args.env_name == 'Circles-v0':
+    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
         import gym_sog
         env = gym.make(args.env_name, args=args)
     else:

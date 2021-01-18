@@ -217,7 +217,7 @@ def get_args():
     parser.add_argument(
         '--radii',
         type=str, default='-10,10,20',
-        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards.')
+        help='a list of radii to be sampled uniformly at random for "Circles-v0" or "Ellipses-v0" environment. a negative sign implies that the circle is to be drawn downwards. for ellipses: rx1, ry1, rx2, ry2, ...')
 
     args = parser.parse_args()
 
