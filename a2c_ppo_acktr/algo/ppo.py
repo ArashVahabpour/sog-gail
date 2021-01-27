@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from a2c_ppo_acktr.algo.sog import SOG
+from a2c_ppo_acktr.algo.sog import BlockCoordinateSearch, OneHotSearch
 
 
 class PPO:
@@ -25,6 +25,14 @@ class PPO:
         # sog gail
         self.sog_gail = args.sog_gail
         self.sog_gail_coef = args.sog_gail_coef if self.sog_gail else None
+
+        if args.latent_optimizer == 'bcs':
+            SOG = BlockCoordinateSearch
+        elif args.latent_optimizer == 'ohs':
+            SOG = OneHotSearch
+        else:
+            raise NotImplementedError
+
         self.sog = SOG(actor_critic, args) if args.sog_gail else None
 
         self.max_grad_norm = max_grad_norm
@@ -33,7 +41,7 @@ class PPO:
         self.optimizer = optim.Adam(actor_critic.parameters(), lr=lr, eps=eps)
         self.device = args.device
 
-    def update(self, rollouts, sog_train_loader):
+    def update(self, rollouts, sog_train_loader, obsfilt):
         advantages = rollouts.returns[:-1] - rollouts.value_preds[:-1]
         advantages = (advantages - advantages.mean()) / (
             advantages.std() + 1e-5)
@@ -77,6 +85,7 @@ class PPO:
 
                 if self.sog_gail:
                     expert_state, expert_action = next(sog_train_loader)
+                    expert_state = obsfilt(expert_state.numpy(), update=False)
                     expert_state, expert_action = expert_state.to(self.device), expert_action.to(self.device)
                     sog_loss = self.sog.predict_loss(expert_state, expert_action)
                     loss += sog_loss * self.sog_gail_coef

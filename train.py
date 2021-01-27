@@ -44,6 +44,8 @@ def main():
 
     envs = make_vec_envs(args.env_name, args.seed, 1,
                          args.gamma, args.log_dir, device, False, args)
+    obsfilt = utils.get_vec_normalize(envs)._obfilt
+
     if len(envs.observation_space.shape) != 1:
         raise NotImplementedError
 
@@ -68,8 +70,8 @@ def main():
 
     if args.bc_pretrain:
         bc_save_filename = save_filename.format(args.env_name, 'pretrain')
-        BC(agent, bc_save_filename, expert_filename, args).pretrain()
-        utils.visualize_env(args, actor_critic, 'pretrain')
+        BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain()
+        utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
 
     if len(envs.observation_space.shape) != 1:
         raise NotImplementedError
@@ -85,7 +87,7 @@ def main():
         drop_last=drop_last)
 
     if args.shared_code:
-        sog_train_loader = utils.shared_traj_loader(expert_filename, args.gail_batch_size)
+        sog_train_loader = utils.single_traj_loader(expert_filename, args.gail_batch_size)
     else:
         sog_train_loader = torch.utils.data.DataLoader(
             dataset=expert_dataset,
@@ -153,7 +155,7 @@ def main():
         if j < 10:
             gail_epoch = 100  # Warm up
         for _ in range(gail_epoch):
-            discr.update(gail_train_loader, rollouts, utils.get_vec_normalize(envs)._obfilt)
+            discr.update(gail_train_loader, rollouts, obsfilt)
 
         ### update posterior
         if args.infogail:
@@ -174,7 +176,8 @@ def main():
         rollouts.compute_returns(next_value, args.use_gae, args.gamma,
                                  args.gae_lambda, args.use_proper_time_limits)
 
-        value_loss, action_loss, dist_entropy, sog_loss = agent.update(rollouts, sog_train_loader)
+        value_loss, action_loss, dist_entropy, sog_loss = agent.update(
+            rollouts, sog_train_loader, obsfilt)
 
         rollouts.after_update()
 
@@ -204,7 +207,7 @@ def main():
                         ", sog loss {:.5f}".format(sog_loss) if args.sog_gail else ""))
 
         ### visualize a sample trajectory
-        utils.visualize_env(args, actor_critic, j)
+        utils.visualize_env(args, actor_critic, obsfilt, j)
 
 
 if __name__ == "__main__":

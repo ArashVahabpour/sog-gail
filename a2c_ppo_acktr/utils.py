@@ -77,19 +77,15 @@ def generate_latent_codes(args, count=1):
     return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
 
 
-def visualize_env(args, actor_critic, epoch, num_steps=1000):
+def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
     plt.figure(figsize=(10, 20))
     plt.set_cmap('gist_rainbow')
 
-    # plotting the actual circles/ellipses
+    # plotting the actual circles
     if args.env_name == 'Circles-v0':
         for r in args.radii:
             t = np.linspace(0, 2 * np.pi, 200)
             plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
-    elif args.env_name == 'Ellipses-v0':
-        for rx, ry in np.array(args.radii).reshape(-1, 2):
-            t = np.linspace(0, 2 * np.pi, 200)
-            plt.plot(rx * np.cos(t), ry * np.sin(t) + ry, color='#d0d0d0')
     else:
         raise NotImplementedError
 
@@ -101,7 +97,7 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
 
     # preparing the environment
     device = next(actor_critic.parameters()).device
-    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
+    if args.env_name == 'Circles-v0':
         import gym_sog
         env = gym.make(args.env_name, args=args)
     else:
@@ -119,6 +115,7 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
             # interacting with env
             with torch.no_grad():
                 # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
+                obs = obsfilt(obs.numpy(), update=False)
                 obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
                 _, actions_tensor, _ = actor_critic.act(obs_tensor, latent_code, deterministic=True)
                 action = actions_tensor[0].cpu().numpy()
@@ -138,7 +135,7 @@ def visualize_env(args, actor_critic, epoch, num_steps=1000):
     plt.close()
 
 
-def shared_traj_loader(expert_filename, batch_size):
+def single_traj_loader(expert_filename, batch_size):
     """
     a generator that returns (s, a) samples of a shared sample trajectory
 

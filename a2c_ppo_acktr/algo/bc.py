@@ -12,12 +12,13 @@ class BC:
     """
     Behavioral cloning pretraining of the model, in a conventional way or with SOG
     """
-    def __init__(self, agent, save_filename, expert_filename, args):
+    def __init__(self, agent, save_filename, expert_filename, args, obsfilt):
         self.args = args
         self.save_filename = save_filename
         self.data_loader = self.create_data_loader(expert_filename)
         self.actor_critic = agent.actor_critic
         self.sog = agent.sog
+        self.obsfilt = obsfilt
 
     @staticmethod
     def flatten(x):
@@ -50,6 +51,7 @@ class BC:
 
         for epoch in tqdm(range(1, epochs + 1)):
             for _, (data_x, data_y) in enumerate(self.data_loader):
+                data_x = self.obsfilt(data_x.numpy(), update=True)
                 data_x = data_x.to(device)
                 data_y = data_y.to(device)
 

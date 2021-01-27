@@ -1,6 +1,7 @@
 import argparse
 import torch
 import os
+import numpy as np
 
 
 def get_args():
@@ -165,7 +166,19 @@ def get_args():
         default=False,
         help='use a linear schedule on the learning rate')
 
-    # infogail / sog-gail
+    # network architecture
+    parser.add_argument(
+        '--adjust-scale',
+        action='store_true',
+        default=False,
+        help='add a non-linearity to the final layer of generator, giving some boost in performance in sog-gail')
+    parser.add_argument(
+        '--wasserstein',
+        action='store_true',
+        default=False,
+        help='use wasserstein loss for discriminator as advised by infogail paper')
+
+    # infogail
     parser.add_argument(
         '--latent-dim',
         type=int,
@@ -186,6 +199,8 @@ def get_args():
         type=float,
         default=0.1,
         help='mutual entropy lower bound coefficient (default: 0.1)')
+
+    # sog
     parser.add_argument(
         '--sog-gail',
         action='store_true',
@@ -201,17 +216,21 @@ def get_args():
         action='store_true',
         default=False,
         help='solve for a "shared" latent code for expert trajectories, in sog-gail model')
-
     parser.add_argument(
-        '--adjust-scale',
-        action='store_true',
-        default=False,
-        help='add a non-linearity to the final layer of generator, giving some boost in performance in sog-gail')
+        '--block_size',
+        type=int,
+        default=2,
+        help='size of coordinate search blocks')
     parser.add_argument(
-        '--wasserstein',
-        action='store_true',
-        default=False,
-        help='use wasserstein loss for discriminator as advised by infogail paper')
+        '--n_rounds',
+        type=int,
+        default=1,
+        help='number of coordinate search rounds')
+    parser.add_argument(
+        '--latent_optimizer',
+        type=str,
+        default='bcs',
+        help='method to find best latent code: e.g. "bcs" for block coorindate search, or "ohs" for one-hot-search.')
 
     # custom envs
     parser.add_argument(
@@ -222,7 +241,7 @@ def get_args():
     parser.add_argument(
         '--radii',
         type=str, default='-10,10,20',
-        help='a list of radii to be sampled uniformly at random for "Circles-v0" or "Ellipses-v0" environment. a negative sign implies that the circle is to be drawn downwards. for ellipses: rx1, ry1, rx2, ry2, ...')
+        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards. you may also input expressions such as "np.linspace(-10,10,100)".')
 
     args = parser.parse_args()
 
@@ -232,8 +251,8 @@ def get_args():
     args.device = torch.device('cuda' if args.cuda else 'cpu')
     args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
 
-    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
-        args.radii = [int(r) for r in args.radii.split(',')]
+    if args.env_name == 'Circles-v0':
+        args.radii = eval(args.radii)
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
 

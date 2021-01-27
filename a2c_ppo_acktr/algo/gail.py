@@ -15,6 +15,7 @@ class Discriminator(nn.Module):
 
         self.args = args
         self.device = args.device
+        self.wasserstein = args.wasserstein
 
         self.trunk = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
@@ -23,7 +24,7 @@ class Discriminator(nn.Module):
 
         self.trunk.train()
 
-        optimizer = RMSprop if args.wasserstein else Adam
+        optimizer = Adam #= RMSprop if args.wasserstein else Adam
         self.optimizer = optimizer(self.trunk.parameters())
 
         self.returns = None
@@ -78,7 +79,7 @@ class Discriminator(nn.Module):
             expert_d = self.trunk(
                 torch.cat([expert_state, expert_action], dim=1))
 
-            if self.args.wasserstein:
+            if self.wasserstein:
                 expert_loss = expert_d.mean()
                 policy_loss = -policy_d.mean()
             else:
@@ -100,21 +101,21 @@ class Discriminator(nn.Module):
             (gail_loss + grad_pen).backward()
             self.optimizer.step()
 
-            if self.args.wasserstein:
+            if self.wasserstein:
                 self.clip_weights()
         return loss / n
 
     def clip_weights(self):
-        for param in self.parameters():
-            with torch.no_grad():
-                param.clamp_(-0.01, 0.01)
+        return
+        for p in self.trunk.parameters():
+            p.data.clamp_(-0.01, 0.01)
 
     def predict_reward(self, state, action, gamma, masks, update_rms=True):
         with torch.no_grad():
             self.eval()
             d = self.trunk(torch.cat([state, action], dim=1))
             s = torch.sigmoid(d)
-            reward = -d if self.args.wasserstein else s.log() - (1 - s).log()
+            reward = -d if self.wasserstein else s.log() - (1 - s).log()
 
             if self.returns is None:
                 self.returns = reward.clone()
