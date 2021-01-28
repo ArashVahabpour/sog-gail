@@ -39,7 +39,7 @@ class BC:
         epochs = self.args.bc_epochs
 
         if os.path.exists(self.save_filename):
-            ob_rms = get_vec_normalize(envs)
+            ob_rms = get_vec_normalize(envs).ob_rms
             saved_actor_critic, _, _, saved_ob_rms = torch.load(self.save_filename)
             actor_critic.load_state_dict(saved_actor_critic.state_dict())
             ob_rms.mean, ob_rms.var, ob_rms.count = saved_ob_rms.mean, saved_ob_rms.var, saved_ob_rms.count
@@ -72,11 +72,11 @@ class BC:
 
             # end of epoch
             if epochs < 10 or epoch % (epochs//10) == 0:  # every 10%
-                print(f'End of pretraining epoch {epoch}, loss={np.mean(losses) / len(losses):.3e}')
+                print(f' End of pretraining epoch {epoch}, loss={np.mean(losses) / len(losses):.3e}')
         # save
         torch.save([
             actor_critic,
             None,
             None,
-            get_vec_normalize(envs).ob_rms  #TODO ob_rms
+            get_vec_normalize(envs).ob_rms
         ], self.save_filename)

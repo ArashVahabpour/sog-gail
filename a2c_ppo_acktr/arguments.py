@@ -222,6 +222,11 @@ def get_args():
         default=2,
         help='size of coordinate search blocks')
     parser.add_argument(
+        '--samples-per-dim',
+        type=int,
+        default=32,
+        help='number of samples per dimension')
+    parser.add_argument(
         '--n-rounds',
         type=int,
         default=1,
@@ -259,6 +264,12 @@ def get_args():
     args.vanilla = not (args.infogail or args.sog_gail)
     if args.infogail and args.sog_gail:
         raise ValueError('cannot raise --infogail and --sog-gail flags concurrently.')
+    if args.sog_gail:
+        if args.latent_optimizer == 'bcs':
+            assert args.latent_dim % args.block_size == 0, 'latent_dim must be divisible by block_size'
+            args.latent_batch_size = args.samples_per_dim ** args.block_size
+        else:
+            args.latent_batch_size = args.latent_dim
     # args.adjust_scale |= args.sog_gail
     # args.wasserstein |= args.infogail
 
