@@ -55,6 +55,7 @@ def main():
         args)
     actor_critic.to(device)
 
+
     gail_input_dim = envs.observation_space.shape[0] + envs.action_space.shape[0]
     if args.infogail:
         posterior = gail.Posterior(gail_input_dim, 128, args)
@@ -68,9 +69,9 @@ def main():
         eps=args.eps,
         max_grad_norm=args.max_grad_norm)
 
-    if args.bc_pretrain:
+    if args.pretrain:
         bc_save_filename = save_filename.format(args.env_name, 'pretrain')
-        BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain()
+        BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain(envs)
         utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
 
     if len(envs.observation_space.shape) != 1:

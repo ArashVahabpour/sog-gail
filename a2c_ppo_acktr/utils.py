@@ -115,7 +115,7 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
             # interacting with env
             with torch.no_grad():
                 # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
-                obs = obsfilt(obs.numpy(), update=False)
+                obs = obsfilt(obs, update=False)
                 obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
                 _, actions_tensor, _ = actor_critic.act(obs_tensor, latent_code, deterministic=True)
                 action = actions_tensor[0].cpu().numpy()

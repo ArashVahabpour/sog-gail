@@ -36,7 +36,7 @@ python train.py --name
 --adjust-scale
 --gpu-id
 0
---bc-pretrain
+--pretrain
 ```
 
 ---

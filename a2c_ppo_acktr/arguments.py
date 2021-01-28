@@ -25,7 +25,7 @@ def get_args():
         default=64,
         help='behavioral cloning batch size (default: 64)')
     parser.add_argument(
-        '--bc-epoch',
+        '--bc-epochs',
         type=int,
         default=100,
         help='number of behavioral cloning epochs (default: 100)')
@@ -185,7 +185,7 @@ def get_args():
         default=3,
         help='dim of latent codes')
     parser.add_argument(
-        '--bc-pretrain',
+        '--pretrain',
         action='store_true',
         default=False,
         help='pretrain the generator with behavioral cloning before training')
@@ -217,17 +217,17 @@ def get_args():
         default=False,
         help='solve for a "shared" latent code for expert trajectories, in sog-gail model')
     parser.add_argument(
-        '--block_size',
+        '--block-size',
         type=int,
         default=2,
         help='size of coordinate search blocks')
     parser.add_argument(
-        '--n_rounds',
+        '--n-rounds',
         type=int,
         default=1,
         help='number of coordinate search rounds')
     parser.add_argument(
-        '--latent_optimizer',
+        '--latent-optimizer',
         type=str,
         default='bcs',
         help='method to find best latent code: e.g. "bcs" for block coorindate search, or "ohs" for one-hot-search.')
