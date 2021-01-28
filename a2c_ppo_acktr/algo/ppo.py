@@ -86,7 +86,7 @@ class PPO:
                 if self.sog_gail:
                     expert_state, expert_action = next(sog_train_loader)
                     expert_state = obsfilt(expert_state.numpy(), update=False)
-                    expert_state = torch.tensor(expert_state, dtype=torch.float32, device=self.device)[None]
+                    expert_state = torch.tensor(expert_state, dtype=torch.float32, device=self.device)
                     expert_action = expert_action.to(self.device)
                     sog_loss = self.sog.predict_loss(expert_state, expert_action)
                     loss += sog_loss * self.sog_gail_coef
