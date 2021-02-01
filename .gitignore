@@ -5,3 +5,4 @@ baselines/
 gail_experts/*.pt
 trained_models/
 results/
+**/*.avi
