@@ -14,7 +14,7 @@ def get_args():
         default='gail',
         help='name of the experiment. It decides where to store samples and models')
     parser.add_argument(
-        '--which_epoch',
+        '--which-epoch',
         type=str, default='latest',
         help='which epoch to load? set to latest to use latest cached model')
 
@@ -199,6 +199,11 @@ def get_args():
         type=float,
         default=0.1,
         help='mutual entropy lower bound coefficient (default: 0.1)')
+    parser.add_argument(
+        '--no-posterior-rms',
+        action='store_true',
+        default=False,
+        help='whether to normalize the posterior reward during training')
 
     # sog
     parser.add_argument(
@@ -234,7 +239,7 @@ def get_args():
     parser.add_argument(
         '--latent-optimizer',
         type=str,
-        default='bcs',
+        default='ohs',
         help='method to find best latent code: e.g. "bcs" for block coorindate search, or "ohs" for one-hot-search.')
 
     # custom envs

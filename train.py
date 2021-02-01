@@ -22,6 +22,7 @@ def main():
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
+    np.random.seed(args.seed)
 
     if args.cuda and torch.cuda.is_available() and args.cuda_deterministic:
         torch.backends.cudnn.benchmark = False

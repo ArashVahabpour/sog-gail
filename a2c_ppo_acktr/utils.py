@@ -92,8 +92,8 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
     max_r = np.max(np.abs(args.radii))
     plt.axis('equal')
     plt.axis('off')
-    plt.xlim([-max_r, max_r])
-    plt.ylim([-2 * max_r, 2 * max_r])
+    plt.xlim([-1.5 * max_r, 1.5 * max_r])
+    plt.ylim([-3 * max_r, 3 * max_r])
 
     # preparing the environment
     device = next(actor_critic.parameters()).device
@@ -127,6 +127,39 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
             break  # one trajectory in vanilla mode is enough. if not, then rollout for each separate latent code
         else:
             obs = env.reset()
+
+    # from itertools import product
+    # n_grid = 10
+    # for i1, i2 in product(range(n_grid), range(n_grid)):
+    #     init_loc = np.array([[np.linspace(-max_r, max_r, n_grid)[i1], np.linspace(2*max_r, -2*max_r, n_grid)[i2]]]*5)
+    #     # generate rollouts and plot them
+    #     for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
+    #         env.manual_init(init_loc)
+    #         latent_code = latent_code.unsqueeze(0)
+    #
+    #         for i in range(num_steps):
+    #             # randomize latent code at each step in case of vanilla gail
+    #             if args.vanilla:
+    #                 latent_code = generate_latent_codes(args)
+    #             # interacting with env
+    #             with torch.no_grad():
+    #                 # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
+    #                 obs = obsfilt(obs, update=False)
+    #                 obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
+    #                 _, actions_tensor, _ = actor_critic.act(obs_tensor, latent_code, deterministic=True)
+    #                 action = actions_tensor[0].cpu().numpy()
+    #             obs, _, _, _ = env.step(action)
+    #
+    #         # plotting the trajectory
+    #         ax = plt.subplot(n_grid, n_grid, 1+i2*n_grid+i1)
+    #         ax.set_xlim([-1.5 * max_r, 1.5 * max_r])
+    #         ax.set_ylim([-3 * max_r, 3 * max_r])
+    #         ax.set_axis_off()
+    #         plt.plot(env.loc_history[:, 0], env.loc_history[:, 1], color=plt.cm.Dark2.colors[j])
+    #         if args.vanilla:
+    #             break  # one trajectory in vanilla mode is enough. if not, then rollout for each separate latent code
+    #         else:
+    #             obs = env.reset()
 
     env.close()
 

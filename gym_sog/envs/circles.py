@@ -102,6 +102,9 @@ class CirclesEnv(gym.Env):
         """
         self.loc_history = np.zeros([self.state_len, 2])
 
+    def manual_init(self, init_loc):
+        self.loc_history = init_loc
+
     def render(self, mode='human'):
         from gym.envs.classic_control import rendering
 
@@ -172,7 +175,6 @@ class CirclesEnv(gym.Env):
             or x > self.x_threshold
             or y < -self.y_threshold
             or y > self.y_threshold
-            or len(self.loc_history) > self.max_steps
             or self.step_num >= self.max_steps
         )
 
