@@ -208,8 +208,9 @@ def main():
                         action_loss,
                         ", sog loss {:.5f}".format(sog_loss) if args.sog_gail else ""))
 
-        ### visualize a sample trajectory
-        utils.visualize_env(args, actor_critic, obsfilt, j)
+        if j % args.result_interval == 0:
+            ### visualize a sample trajectory
+            utils.visualize_env(args, actor_critic, obsfilt, j)
 
 
 if __name__ == "__main__":

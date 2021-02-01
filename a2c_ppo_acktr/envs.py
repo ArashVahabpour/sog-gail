@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from gym.spaces.box import Box
 import gym_sog
-
+import rlkit  #TODO conditional loading of these libs
 from baselines import bench
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 from baselines.common.vec_env import VecEnvWrapper

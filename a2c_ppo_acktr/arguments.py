@@ -128,6 +128,11 @@ def get_args():
         default=None,
         help='eval interval, one eval per n updates (default: None)')
     parser.add_argument(
+        '--result-interval',
+        type=int,
+        default=1,
+        help='number of iterations per creating results')
+    parser.add_argument(
         '--num-env-steps',
         type=int,
         default=10e6,
@@ -252,6 +257,11 @@ def get_args():
         '--radii',
         type=str, default='-10,10,20',
         help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards. you may also input expressions such as "np.linspace(-10,10,100)".')
+    parser.add_argument(
+        '--mujoco',
+        action='store_true',
+        default=False,
+        help='indicates using of a mujoco env')
 
     args = parser.parse_args()
 
