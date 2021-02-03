@@ -8,10 +8,8 @@ from a2c_ppo_acktr.envs import VecNormalize
 
 import matplotlib.pyplot as plt
 
-from mujoco_py import GlfwContext
 import numpy as np
 import cv2
-GlfwContext(offscreen=True)
 
 
 # Get a render function
