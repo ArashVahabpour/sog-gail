@@ -104,7 +104,7 @@ class MujocoPlay:
         m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
         latent_codes = m.icdf(torch.tensor(cdf, dtype=torch.float32)).to(args.device)
 
-        for latent_code_ in product(*[latent_codes] * args.latent_dim):
+        for j, latent_code_ in enumerate(product(*[latent_codes] * args.latent_dim)):
             episode_reward = 0
             s = self.env.reset()
             for step in range(self.max_episode_steps):
@@ -161,11 +161,12 @@ class MujocoPlay:
 
 
 def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
-    plt.figure(figsize=(10, 20))
-    plt.set_cmap('gist_rainbow')
+    filename = os.path.join(args.results_dir, str(epoch))
 
-    # plotting the actual circles
     if args.env_name == 'Circles-v0':
+        plt.figure(figsize=(10, 20))
+        plt.set_cmap('gist_rainbow')
+        # plotting the actual circles
         for r in args.radii:
             t = np.linspace(0, 2 * np.pi, 200)
             plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
@@ -175,29 +176,11 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
             plt.xlim([-1.5 * max_r, 1.5 * max_r])
             plt.ylim([-3 * max_r, 3 * max_r])
 
-    elif not args.mujoco:
-        raise NotImplementedError
-
-    # preparing the environment
-    device = next(actor_critic.parameters()).device
-    if args.env_name == 'Circles-v0':
         import gym_sog
         env = gym.make(args.env_name, args=args)
-    elif args.mujoco:
-        import rlkit
-        env = gym.make(args.env_name)
-    obs = env.reset()
+        obs = env.reset()
 
-    filename = os.path.join(args.results_dir, str(epoch))
-
-    if args.mujoco:
-        mujoco_play = MujocoPlay(args, env, actor_critic, filename, obsfilt)
-        if args.sog_gail and args.latent_optimizer == 'bcs':
-            mujoco_play.evaluate_continuous()
-        else:
-            mujoco_play.evaluate_discrete()
-
-    else:
+        device = next(actor_critic.parameters()).device
         # generate rollouts and plot them
         for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
             latent_code = latent_code.unsqueeze(0)
@@ -259,6 +242,18 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
 
         plt.savefig(filename + '.png')
         plt.close()
+
+    elif args.mujoco:
+        import rlkit
+        env = gym.make(args.env_name)
+        mujoco_play = MujocoPlay(args, env, actor_critic, filename, obsfilt)
+        if args.sog_gail and args.latent_optimizer == 'bcs':
+            mujoco_play.evaluate_continuous()
+        else:
+            mujoco_play.evaluate_discrete()
+
+    else:
+        raise NotImplementedError
 
 
 def single_traj_loader(expert_filename, batch_size):
