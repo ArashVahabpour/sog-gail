@@ -32,4 +32,6 @@
 
 
 from .half_cheetah_dir import HalfCheetahDirEnv
+from .half_cheetah_vel import HalfCheetahVelEnv
 from .ant_dir import AntDirEnv
+from .ant_goal import AntGoalEnv

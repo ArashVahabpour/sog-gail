@@ -1,10 +1,10 @@
 import numpy as np
 
-from . import register_env
+# from . import register_env
 from .half_cheetah import HalfCheetahEnv
 
 
-@register_env('cheetah-vel')
+# @register_env('cheetah-vel')
 class HalfCheetahVelEnv(HalfCheetahEnv):
     """Half-cheetah environment with target velocity, as described in [1]. The
     code is adapted from
@@ -24,6 +24,9 @@ class HalfCheetahVelEnv(HalfCheetahEnv):
         (https://homes.cs.washington.edu/~todorov/papers/TodorovIROS12.pdf)
     """
     def __init__(self, task={}, n_tasks=2, randomize_tasks=True):
+        self.max_steps = 200
+        self.step_num = 0  # how many steps passed since environment reset
+
         self._task = task
         self.tasks = self.sample_tasks(n_tasks)
         self._goal_vel = self.tasks[0].get('velocity', 0.0)
@@ -31,6 +34,7 @@ class HalfCheetahVelEnv(HalfCheetahEnv):
         super(HalfCheetahVelEnv, self).__init__()
 
     def step(self, action):
+        self.step_num += 1
         xposbefore = self.sim.data.qpos[0]
         self.do_simulation(action, self.frame_skip)
         xposafter = self.sim.data.qpos[0]
@@ -41,7 +45,7 @@ class HalfCheetahVelEnv(HalfCheetahEnv):
 
         observation = self._get_obs()
         reward = forward_reward - ctrl_cost
-        done = False
+        done = self.step_num >= self.max_steps
         infos = dict(reward_forward=forward_reward,
             reward_ctrl=-ctrl_cost, task=self._task)
         return (observation, reward, done, infos)
@@ -60,3 +64,7 @@ class HalfCheetahVelEnv(HalfCheetahEnv):
         self._goal_vel = self._task['velocity']
         self._goal = self._goal_vel
         self.reset()
+
+    def reset(self):
+        self.step_num = 0
+        return super().reset()

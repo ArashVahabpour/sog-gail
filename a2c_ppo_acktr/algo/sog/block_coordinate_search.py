@@ -53,6 +53,3 @@ class BlockCoordinateSearch(BaseSearch):
             best_z = self.search_iter(new_z, actions=action, states=state)
 
         return best_z
-
-    def predict_loss(self, expert_state, expert_action):
-        pass
