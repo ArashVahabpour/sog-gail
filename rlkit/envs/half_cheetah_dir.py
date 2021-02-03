@@ -24,6 +24,9 @@ class HalfCheetahDirEnv(HalfCheetahEnv):
         (https://homes.cs.washington.edu/~todorov/papers/TodorovIROS12.pdf)
     """
     def __init__(self, task={}, n_tasks=2, randomize_tasks=False):
+        self.max_steps = 200
+        self.step_num = 0  # how many steps passed since environment reset
+
         directions = [-1, 1]
         self.tasks = [{'direction': direction} for direction in directions]
         self._task = task
@@ -32,6 +35,7 @@ class HalfCheetahDirEnv(HalfCheetahEnv):
         super(HalfCheetahDirEnv, self).__init__()
 
     def step(self, action):
+        self.step_num += 1
         xposbefore = self.sim.data.qpos[0]
         self.do_simulation(action, self.frame_skip)
         xposafter = self.sim.data.qpos[0]
@@ -42,7 +46,7 @@ class HalfCheetahDirEnv(HalfCheetahEnv):
 
         observation = self._get_obs()
         reward = forward_reward - ctrl_cost
-        done = False
+        done = self.step_num >= self.max_steps
         infos = dict(reward_forward=forward_reward,
             reward_ctrl=-ctrl_cost, task=self._task)
         return (observation, reward, done, infos)
@@ -60,3 +64,7 @@ class HalfCheetahDirEnv(HalfCheetahEnv):
         self._goal_dir = self._task['direction']
         self._goal = self._goal_dir
         self.reset()
+
+    def reset(self):
+        self.step_num = 0
+        return super().reset()

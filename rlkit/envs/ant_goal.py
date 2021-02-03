@@ -1,16 +1,19 @@
 import numpy as np
 
 from rlkit.envs.ant_multitask_base import MultitaskAntEnv
-from . import register_env
+# from . import register_env
 
 
 # Copy task structure from https://github.com/jonasrothfuss/ProMP/blob/master/meta_policy_search/envs/mujoco_envs/ant_rand_goal.py
-@register_env('ant-goal')
+# @register_env('ant-goal')
 class AntGoalEnv(MultitaskAntEnv):
     def __init__(self, task={}, n_tasks=2, randomize_tasks=True, **kwargs):
+        self.max_steps = 200
+        self.step_num = 0  # how many steps passed since environment reset
         super(AntGoalEnv, self).__init__(task, n_tasks, **kwargs)
 
     def step(self, action):
+        self.step_num += 1
         self.do_simulation(action, self.frame_skip)
         xposafter = np.array(self.get_body_com("torso"))
 
@@ -22,7 +25,7 @@ class AntGoalEnv(MultitaskAntEnv):
         survive_reward = 0.0
         reward = goal_reward - ctrl_cost - contact_cost + survive_reward
         state = self.state_vector()
-        done = False
+        done = self.step_num >= self.max_steps
         ob = self._get_obs()
         return ob, reward, done, dict(
             goal_forward=goal_reward,
@@ -44,3 +47,8 @@ class AntGoalEnv(MultitaskAntEnv):
             self.sim.data.qvel.flat,
             np.clip(self.sim.data.cfrc_ext, -1, 1).flat,
         ])
+
+    def reset(self):
+        self.step_num = 0
+        return super().reset()
+

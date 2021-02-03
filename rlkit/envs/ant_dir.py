@@ -9,9 +9,12 @@ class AntDirEnv(MultitaskAntEnv):
 
     def __init__(self, task={}, n_tasks=2, forward_backward=False, randomize_tasks=True, **kwargs):
         self.forward_backward = forward_backward
+        self.max_steps = 200
+        self.step_num = 0  # how many steps passed since environment reset
         super(AntDirEnv, self).__init__(task, n_tasks, **kwargs)
 
     def step(self, action):
+        self.step_num += 1
         torso_xyz_before = np.array(self.get_body_com("torso"))
 
         direct = (np.cos(self._goal), np.sin(self._goal))
@@ -29,7 +32,7 @@ class AntDirEnv(MultitaskAntEnv):
         state = self.state_vector()
         notdone = np.isfinite(state).all() \
                   and state[2] >= 0.2 and state[2] <= 1.0
-        done = not notdone
+        done = not notdone or self.step_num >= self.max_steps
         ob = self._get_obs()
         return ob, reward, done, dict(
             reward_forward=forward_reward,
@@ -47,3 +50,7 @@ class AntDirEnv(MultitaskAntEnv):
             velocities = np.random.uniform(0., 2.0 * np.pi, size=(num_tasks,))
         tasks = [{'goal': velocity} for velocity in velocities]
         return tasks
+
+    def reset(self):
+        self.step_num = 0
+        return super().reset()

@@ -38,7 +38,9 @@ def main():
     save_filename = os.path.join(save_dir, '{}_{}.pt')
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(args.results_dir, exist_ok=True)
-    expert_filename = os.path.join(args.gail_experts_dir, 'trajs_{}.pt'.format(args.env_name.split('-')[0].lower()))
+
+    expert_filename = args.expert_filename if args.expert_filename else 'trajs_{}.pt'.format(args.env_name.split('-')[0].lower())
+    expert_filename = os.path.join(args.gail_experts_dir, expert_filename)
 
     torch.set_num_threads(1)
     device = args.device

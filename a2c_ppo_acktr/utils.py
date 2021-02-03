@@ -2,14 +2,17 @@ import glob
 import os
 import torch
 import torch.nn as nn
+from torch.distributions import Normal
 import gym
+import matplotlib.pyplot as plt
+import numpy as np
+import cv2
+from itertools import product
 
 from a2c_ppo_acktr.envs import VecNormalize
 
-import matplotlib.pyplot as plt
-
-import numpy as np
-import cv2
+# from mujoco_py import GlfwContext
+# GlfwContext(offscreen=True) #TODO remove these lines if not really needed
 
 
 # Get a render function
@@ -20,6 +23,7 @@ def get_render_func(venv):
         return get_render_func(venv.venv)
     elif hasattr(venv, 'env'):
         return get_render_func(venv.env)
+
 
     return None
 
@@ -80,9 +84,8 @@ def generate_latent_codes(args, count=1):
 
 
 class MujocoPlay:
-    def __init__(self, args, env, actor_critic, filename, obsfilt, max_episode=1, max_episode_time=10):
+    def __init__(self, args, env, actor_critic, filename, obsfilt, max_episode_time=10):
         self.env = env
-        self.max_episode = max_episode
         self.max_episode_steps = int(max_episode_time / env.dt)
         self.actor_critic = actor_critic
         self.args = args
@@ -93,19 +96,53 @@ class MujocoPlay:
         self.video_size = (250, 250)
         self.VideoWriter = cv2.VideoWriter(f'{filename}.avi', self.fourcc, 1/env.dt, self.video_size)
 
-    def evaluate(self):
+    def evaluate_continuous(self, max_episode=10):
         args = self.args
-        for _ in range(self.max_episode):
+
+        max_episode_per_dim = int(np.ceil(max_episode ** (1/args.latent_dim)))
+        cdf = np.linspace(.1, .9, max_episode_per_dim)
+        m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+        latent_codes = m.icdf(torch.tensor(cdf, dtype=torch.float32)).to(args.device)
+
+        for latent_code_ in product(*[latent_codes] * args.latent_dim):
+            episode_reward = 0
             s = self.env.reset()
+            for step in range(self.max_episode_steps):
+                latent_code = torch.stack(list(latent_code_))[None]
+                s = self.obsfilt(s, update=False)
+                s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+                with torch.no_grad():
+                    _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                action = actions_tensor[0].cpu().numpy()
+                s_, r, done, _ = self.env.step(action)
+                episode_reward += r
+                if done:
+                    break
+                s = s_
+                I = self.env.render(mode='rgb_array')
+                I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
+                I = cv2.resize(I, self.video_size)
+                self.VideoWriter.write(I)
+            self.VideoWriter.write(np.zeros([*self.video_size, 3], dtype=np.uint8))
+            print(f"episode reward:{episode_reward:3.3f}")
+        self.env.close()
+        self.VideoWriter.release()
+        cv2.destroyAllWindows()
+
+    def evaluate_discrete(self, max_episode=1):
+        args = self.args
+        for _ in range(max_episode):
             episode_reward = 0
             for j, latent_code in enumerate(torch.eye(args.latent_dim, device=args.device)):
+                s = self.env.reset()
                 latent_code = latent_code.unsqueeze(0)
                 for step in range(self.max_episode_steps):
                     if args.vanilla:
                         latent_code = generate_latent_codes(args)
                     s = self.obsfilt(s, update=False)
                     s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
-                    _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    with torch.no_grad():
+                        _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
                     action = actions_tensor[0].cpu().numpy()
                     s_, r, done, _ = self.env.step(action)
                     episode_reward += r
@@ -116,6 +153,7 @@ class MujocoPlay:
                     I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
                     I = cv2.resize(I, self.video_size)
                     self.VideoWriter.write(I)
+                self.VideoWriter.write(np.zeros([*self.video_size, 3], dtype=np.uint8))
             print(f"episode reward:{episode_reward:3.3f}")
         self.env.close()
         self.VideoWriter.release()
@@ -131,28 +169,34 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
         for r in args.radii:
             t = np.linspace(0, 2 * np.pi, 200)
             plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
-    else:
-        raise NotImplementedError
+            max_r = np.max(np.abs(args.radii))
+            plt.axis('equal')
+            plt.axis('off')
+            plt.xlim([-1.5 * max_r, 1.5 * max_r])
+            plt.ylim([-3 * max_r, 3 * max_r])
 
-    max_r = np.max(np.abs(args.radii))
-    plt.axis('equal')
-    plt.axis('off')
-    plt.xlim([-1.5 * max_r, 1.5 * max_r])
-    plt.ylim([-3 * max_r, 3 * max_r])
+    elif not args.mujoco:
+        raise NotImplementedError
 
     # preparing the environment
     device = next(actor_critic.parameters()).device
     if args.env_name == 'Circles-v0':
         import gym_sog
         env = gym.make(args.env_name, args=args)
-    else:
+    elif args.mujoco:
+        import rlkit
         env = gym.make(args.env_name)
     obs = env.reset()
 
     filename = os.path.join(args.results_dir, str(epoch))
 
     if args.mujoco:
-        MujocoPlay(args, env, actor_critic, filename, obsfilt).evaluate()
+        mujoco_play = MujocoPlay(args, env, actor_critic, filename, obsfilt)
+        if args.sog_gail and args.latent_optimizer == 'bcs':
+            mujoco_play.evaluate_continuous()
+        else:
+            mujoco_play.evaluate_discrete()
+
     else:
         # generate rollouts and plot them
         for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):

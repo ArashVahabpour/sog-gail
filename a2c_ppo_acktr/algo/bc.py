@@ -40,7 +40,7 @@ class BC:
 
         if os.path.exists(self.save_filename):
             ob_rms = get_vec_normalize(envs).ob_rms
-            saved_actor_critic, _, _, saved_ob_rms = torch.load(self.save_filename)
+            saved_actor_critic, _, _, saved_ob_rms = torch.load(self.save_filename, map_location=device)
             actor_critic.load_state_dict(saved_actor_critic.state_dict())
             ob_rms.mean, ob_rms.var, ob_rms.count = saved_ob_rms.mean, saved_ob_rms.var, saved_ob_rms.count
             print('pretrained model loaded...')
