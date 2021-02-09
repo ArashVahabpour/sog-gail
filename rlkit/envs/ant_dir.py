@@ -40,6 +40,7 @@ class AntDirEnv(MultitaskAntEnv):
             reward_contact=-contact_cost,
             reward_survive=survive_reward,
             torso_velocity=torso_velocity,
+            xpos=np.array(self.get_body_com("torso"))[:2]
         )
 
     def sample_tasks(self, num_tasks):

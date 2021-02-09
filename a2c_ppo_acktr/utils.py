@@ -83,20 +83,22 @@ def generate_latent_codes(args, count=1):
     return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
 
 
-class MujocoPlay:
+class MujocoBase:
     def __init__(self, args, env, actor_critic, filename, obsfilt, max_episode_time=10):
         self.env = env
         self.max_episode_steps = int(max_episode_time / env.dt)
         self.actor_critic = actor_critic
         self.args = args
         self.obsfilt = obsfilt
+        self.filename = filename
 
-        # self.agent.set_to_eval_mode()
-        self.fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        self.video_size = (250, 250)
-        self.VideoWriter = cv2.VideoWriter(f'{filename}.avi', self.fourcc, 1/env.dt, self.video_size)
 
+class MujocoPlay(MujocoBase):
     def evaluate_continuous(self, max_episode=10):
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        video_size = (250, 250)
+        VideoWriter = cv2.VideoWriter(f'{self.filename}.avi', fourcc, 1 / self.env.dt, video_size)
+
         args = self.args
 
         max_episode_per_dim = int(np.ceil(max_episode ** (1/args.latent_dim)))
@@ -121,15 +123,19 @@ class MujocoPlay:
                 s = s_
                 I = self.env.render(mode='rgb_array')
                 I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
-                I = cv2.resize(I, self.video_size)
-                self.VideoWriter.write(I)
-            self.VideoWriter.write(np.zeros([*self.video_size, 3], dtype=np.uint8))
+                I = cv2.resize(I, video_size)
+                VideoWriter.write(I)
+            VideoWriter.write(np.zeros([*video_size, 3], dtype=np.uint8))
             print(f"episode reward:{episode_reward:3.3f}")
         self.env.close()
-        self.VideoWriter.release()
+        VideoWriter.release()
         cv2.destroyAllWindows()
 
     def evaluate_discrete(self, max_episode=1):
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        video_size = (250, 250)
+        VideoWriter = cv2.VideoWriter(f'{self.filename}.avi', fourcc, 1 / self.env.dt, video_size)
+
         args = self.args
         for _ in range(max_episode):
             episode_reward = 0
@@ -151,13 +157,74 @@ class MujocoPlay:
                     s = s_
                     I = self.env.render(mode='rgb_array')
                     I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
-                    I = cv2.resize(I, self.video_size)
-                    self.VideoWriter.write(I)
-                self.VideoWriter.write(np.zeros([*self.video_size, 3], dtype=np.uint8))
+                    I = cv2.resize(I, video_size)
+                    VideoWriter.write(I)
+                VideoWriter.write(np.zeros([*video_size, 3], dtype=np.uint8))
             print(f"episode reward:{episode_reward:3.3f}")
         self.env.close()
-        self.VideoWriter.release()
+        VideoWriter.release()
         cv2.destroyAllWindows()
+
+
+class MujocoBenchmark(MujocoBase):
+    def halfcheetahvel_plot(self, num_codes, num_repeats, epoch):
+        args = self.args
+
+        cdf = np.linspace(.1, .9, num_codes)
+        m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+        latent_codes = m.icdf(torch.tensor(cdf, dtype=torch.float32)).to(args.device)
+
+        vel_mean = []
+        vel_std = []
+
+        for j, latent_code in enumerate(latent_codes):
+            vels = []
+            latent_code = latent_code[None, None]
+            for _ in range(num_repeats):
+                s = self.env.reset()
+                for step in range(self.max_episode_steps):
+                    s = self.obsfilt(s, update=False)
+                    s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+                    with torch.no_grad():
+                        _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    action = actions_tensor[0].cpu().numpy()
+                    s, r, done, infos = self.env.step(action)
+                    vels.append(infos['forward_vel'])
+            vel_mean.append(np.mean(vels))
+            vel_std.append(np.std(vels))
+        self.env.close()
+
+        vel_mean, vel_std = np.array(vel_mean), np.array(vel_std)
+        plt.figure()
+        plt.plot(cdf, vel_mean, marker='o', color='r')
+        plt.fill_between(cdf, vel_mean-vel_std, vel_mean+vel_std)
+        plt.savefig(os.path.join(args.results_dir, f'{epoch}.png'))
+        plt.close()
+
+    def ant_plot(self, num_repeats, epoch):
+        args = self.args
+        plt.figure()
+        for j, latent_code in enumerate(torch.eye(args.latent_dim, device=args.device)):
+            latent_code = latent_code[None]
+            for _ in range(num_repeats):
+                s = self.env.reset()
+                xpos = []
+                for step in range(self.max_episode_steps):
+                    s = self.obsfilt(s, update=False)
+                    s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+                    with torch.no_grad():
+                        _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    action = actions_tensor[0].cpu().numpy()
+                    s, r, done, infos = self.env.step(action)
+                    xpos.append(infos['xpos'])
+                xpos = np.array(xpos)
+                plt.plot(xpos[:, 0], xpos[:, 1], color=plt.cm.Dark2.colors[j])
+        plt.plot([0], [0], marker='o', markersize=3, color='k')
+        plt.axis('off')
+        plt.axis('equal')
+        plt.savefig(os.path.join(args.results_dir, f'{epoch}.png'))
+        plt.close()
+        self.env.close()
 
 
 def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
@@ -252,6 +319,23 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
         else:
             mujoco_play.evaluate_discrete()
 
+    else:
+        raise NotImplementedError
+
+
+def benchmark_env(args, actor_critic, obsfilt, epoch):
+    filename = os.path.join(args.results_dir, str(epoch))
+
+    if args.mujoco:
+        import rlkit
+        env = gym.make(args.env_name)
+        mujoco_bench = MujocoBenchmark(args, env, actor_critic, filename, obsfilt)
+        if args.env_name == 'HalfCheetahVel-v0':
+            mujoco_bench.halfcheetahvel_plot(50, 1, epoch)
+        elif args.env_name in {'AntGoal-v0', 'AntDir-v0'}:
+            mujoco_bench.ant_plot(10, epoch)
+        else:
+            raise NotImplementedError
     else:
         raise NotImplementedError
 
