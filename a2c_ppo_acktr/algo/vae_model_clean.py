@@ -10,6 +10,8 @@ from tqdm import tqdm
 import sys, os, inspect
 import os.path as osp
 import argparse
+from plotly.figure_factory import create_quiver
+import plotly.graph_objects as go
 
 # currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 # parentdir = os.path.dirname(currentdir)
@@ -19,9 +21,9 @@ import argparse
 # print(sys.path)
 from a2c_ppo_acktr.algo.behavior_clone import MlpPolicyNet, create_dataset
 from a2c_ppo_acktr.algo.gail import ExpertDataset
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 
-from utilities import to_tensor, save_checkpoint, onehot
+from utilities import merge_plots, to_tensor, save_checkpoint, onehot
 import wandb
 
 
@@ -245,7 +247,7 @@ class VAE_BC(nn.Module):
         input_size_sa=12,
         input_size_state=10,
         hidden_size=128,
-        kld_weight=1
+        kld_weight=1,
     ):
         super(VAE_BC, self).__init__()
         self.epochs = epochs
@@ -272,7 +274,6 @@ class VAE_BC(nn.Module):
         )
         self.kld_weight = kld_weight
 
-   
     # def forward_GG(self, inputs, temp, hard=True):
     #     """
     #     Encode the whole trajectory into one latent code.
@@ -286,7 +287,7 @@ class VAE_BC(nn.Module):
     #     ## TODO: double check whether this is right!!!
     #     outputs_a = self.mlp_policy_net(torch.cat([inputs, latent_code]))
     #     return latent_code, z, outputs_a
-    
+
     def train(self, expert_loader, val_loader, hard=True):
         best_loss = float("inf")
         for epoch in tqdm(range(self.epochs)):
@@ -302,7 +303,7 @@ class VAE_BC(nn.Module):
                     self.checkpoint_dir,
                 )
             train(epoch, self, expert_loader, self.optimizer, self.device, hard)
-            
+
         # self.load_best_checkpoint(checkpoint_path)
 
     def load_best_checkpoint(self, checkpoint_path):
@@ -321,14 +322,28 @@ class VAE_BC(nn.Module):
         KLD = torch.sum(q * log_ratio, dim=-1).mean()
         return MSE_loss + KLD * self.kld_weight, MSE_loss, KLD
 
-def visualize_circle(state, action, ax):
+
+def visualize_actions(state, action, reference_action, name):
     action = action.squeeze()
+    reference_action = reference_action.squeeze()
     scale = 1
-    state = state.numpy()
-    action = action
-    ax.quiver(state[:,-2], state[:,-1], action[:,0]*scale, action[:,1]*scale, angles='xy', color='g')
-    ax.quiver(state[:-1,-2], state[:-1,-1], (state[1:,-2]- state[:-1,-2]) * scale, (state[1:,-1] - state[:-1,-1])*scale, angles='xy',color="r")
-    print("visualized actions", action, state)
+    # ax.quiver(state[:,-2], state[:,-1], action[:,0]*scale, action[:,1]*scale, angles='xy', color='g')
+    # ax.quiver(state[:-1,-2], state[:-1,-1], (state[1:,-2]- state[:-1,-2]) * scale, (state[1:,-1] - state[:-1,-1])*scale, angles='xy',color="r")
+    # print("visualized actions", action, state)
+    fig = create_quiver(
+        state[:, -2], state[:, -1], action[:, 0], action[:, 1], scale=scale, name=name
+    )
+    fig_ref = create_quiver(
+        state[:, -2],
+        state[:, -1],
+        reference_action[:, 0],
+        reference_action[:, 1],
+        scale=scale,
+        name=name + "ref",
+    )
+    fig.add_trace(fig_ref.data[0])
+    fig.add_trace(go.Scatter(x=state[:, -2], y=state[:, -1], mode="lines", name=name))
+    return fig
 
 
 # TODO: Add adpat weight mechanisms
@@ -343,8 +358,7 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
     avg_valid_loss = best_loss + 2
     number_batches = len(val_loader)
     ## generate all codes for BC envless inference
-    
-    
+
     for batch_idx, (traj_state, traj_action) in enumerate(val_loader):
         traj_state = to_tensor(traj_state, device)
         traj_action = to_tensor(traj_action, device)
@@ -360,42 +374,61 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
         valid_loss += loss.item()
         avg_valid_loss = valid_loss / (batch_idx + 1)
 
-        wandb.log({"val_loss": avg_valid_loss, "val_mse_loss": mse, "val_kld_loss": kld, "val_gumbel_temp": temp})
-
+        wandb.log(
+            {
+                "val_loss": avg_valid_loss,
+                "val_mse_loss": mse,
+                "val_kld_loss": kld,
+                "val_gumbel_temp": temp,
+            }
+        )
 
     latent_dim = net.encoder.output_size
     all_latent_codes = torch.eye(latent_dim, device=device)
-    #plt.figure()
+    # plt.figure()
     print("latent_dim", latent_dim)
-    fig, ax = plt.subplots(nrows=1, ncols=3)
+    # fig, ax = plt.subplots(nrows=1, ncols=3)
+    fig_list = []
     vis_state_length = 50
     for batch_idx, (traj_state, traj_action) in enumerate(val_loader):
         if batch_idx == 0:
             for j in range(latent_dim):
-                latent_code = all_latent_codes[j:j+1]
+                latent_code = all_latent_codes[j : j + 1]
                 input_states = to_tensor(traj_state[0:1, :vis_state_length, :], device)
-                latent_code_tuple = latent_code.unsqueeze(1).repeat((1, input_states.size(1), 1))
+                latent_code_tuple = latent_code.unsqueeze(1).repeat(
+                    (1, input_states.size(1), 1)
+                )
                 decoded_actions = net.decoder(input_states, latent_code_tuple)
-                visualize_circle(traj_state[0, :vis_state_length, :], decoded_actions.cpu().detach().numpy(), ax[j])
+                fig_list.append(
+                    visualize_actions(
+                        traj_state[0, :vis_state_length, :].cpu().detach().numpy(),
+                        decoded_actions.cpu().detach().numpy(),
+                        traj_action[0, :vis_state_length, :],
+                        f"{j}",
+                    )
+                )
         else:
             break
-    #plt.show()
-    plt.savefig("decode_action.png")
-    #wandb.log({"decoded actions": plt}) ## failed don't know why
-    wandb.log({"decoded actions": wandb.Image("decode_action.png")})
+    # plt.show()
+    # plt.savefig("decode_action.png")
+    wandb.log({"decoded actions": merge_plots(fig_list)})  ## failed don't know why
+    # wandb.log({"decoded actions": wandb.Image("decode_action.png")})
     plt.close()
-
 
     checkpoint_path = osp.join(checkpoint_dir, "checkpoints/bestvae_bc_model.pth")
     if avg_valid_loss <= best_loss:
         best_loss = avg_valid_loss
         print("Best epoch: " + str(epoch))
         # TODO: save state_dict instead of the encoder/decoder objects
-        save_checkpoint({'epoch': epoch,
-                         'avg_loss': avg_valid_loss,
-                         'state_dict_encoder': net.encoder.state_dict(),
-                         'state_dict_decoder': net.decoder.state_dict(),
-                         }, save_path=checkpoint_path)
+        save_checkpoint(
+            {
+                "epoch": epoch,
+                "avg_loss": avg_valid_loss,
+                "state_dict_encoder": net.encoder.state_dict(),
+                "state_dict_decoder": net.decoder.state_dict(),
+            },
+            save_path=checkpoint_path,
+        )
     return best_loss, checkpoint_path
 
 
@@ -436,7 +469,14 @@ def train(epoch, net, dataloader, optimizer, device, hard):
         if batch_idx % 10 == 0:
             temp = np.maximum(temp * np.exp(-ANNEAL_RATE * batch_idx), temp_min)
 
-        wandb.log({"train_loss": train_loss / (batch_idx + 1), "train_gumbel_temp": temp, "train_mse_loss": mse, "train_kld_loss": kld})
+        wandb.log(
+            {
+                "train_loss": train_loss / (batch_idx + 1),
+                "train_gumbel_temp": temp,
+                "train_mse_loss": mse,
+                "train_kld_loss": kld,
+            }
+        )
 
 
 if __name__ == "__main__":
@@ -456,10 +496,7 @@ if __name__ == "__main__":
         help="number of epochs to train (default: 10)",
     )
     parser.add_argument(
-        "--temp",
-        type=float,
-        default=1.0,
-        help="tau(temperature) (default: 1.0)",
+        "--temp", type=float, default=1.0, help="tau(temperature) (default: 1.0)"
     )
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="enables CUDA training"
@@ -501,12 +538,12 @@ if __name__ == "__main__":
 
     ##
     # /home/shared/gail_experts
-    
+
     ## -------------------Set up for circle env -------------------##
     ##from arash 2021-2-1, 500 traj with shape (500, 1000, 10)
     args.train_data_path = "/mnt/SSD4/tmp_exp_gail/pytorch-a2c-ppo-acktr-gail/final_train_data/trajs_circles.pt"
     expert_dataset = ExpertDataset(
-        args.train_data_path, num_trajectories=500, subsample_frequency=20
+        args.train_data_path, num_trajectories=500, subsample_frequency=2
     )
     args.code_dim = 3
     args.sa_dim = (10, 2)  ## 10 + 2
@@ -562,7 +599,7 @@ if __name__ == "__main__":
         input_size_sa=args.sa_dim[0] + args.sa_dim[1],
         input_size_state=args.sa_dim[0],
         checkpoint_dir=wandb.config.checkpoint_dir,
-        kld_weight=args.kld_weight
+        kld_weight=args.kld_weight,
     )
 
     train_loader, val_loader = create_train_val_split(

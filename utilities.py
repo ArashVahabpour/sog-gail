@@ -295,3 +295,35 @@ def get_module_device(module):
 def get_unique_devices_(module: torch.nn.Module) -> Set[torch.device]:
     return {p.device for p in module.parameters()} | \
         {p.device for p in module.buffers()}
+
+def merge_plots(fig_list):
+    import plotly.graph_objects as go
+    n = len(fig_list)
+    assert n > 1
+    total_interval = 0.1
+    width = (1-total_interval)/n
+    interval = total_interval/(n-1)
+    domain_list = []
+    left = 0
+    for i in range(n):
+        domain_list.append([left, min(left+width,1)])
+        left += width + interval
+
+    for i, (f, domain) in enumerate(zip(fig_list, domain_list)):
+        index = i+1
+        for j in range(len(f.data)):
+            f.data[j].xaxis=f'x{index}'
+            f.data[j].yaxis=f'y{index}'
+        if i > 0:
+            f['layout'][f'xaxis{index}'] = {}
+            f['layout'][f'yaxis{index}'] = {}
+
+        f.layout[f"xaxis{index}"].update({'anchor': f'y{index}', 'domain': domain})
+        f.layout[f"yaxis{index}"].update({'anchor': f'x{index}'})
+
+    fig = go.Figure()
+    fig.add_traces([d for f in fig_list for d in f.data])
+
+    for f in fig_list:
+        fig.layout.update(f.layout)
+    return fig
