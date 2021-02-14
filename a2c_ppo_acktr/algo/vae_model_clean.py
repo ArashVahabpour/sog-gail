@@ -354,15 +354,12 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
     if avg_valid_loss <= best_loss:
         best_loss = avg_valid_loss
         print("Best epoch: " + str(epoch))
-        save_checkpoint(
-            {
-                "epoch": epoch,
-                "avg_loss": avg_valid_loss,
-                "state_dict_encoder": net.encoder,
-                "state_dict_decoder": net.decoder,
-            },
-            save_path=checkpoint_path,
-        )
+        # TODO: save state_dict instead of the encoder/decoder objects
+        save_checkpoint({'epoch': epoch,
+                         'avg_loss': avg_valid_loss,
+                         'state_dict_encoder': net.encoder.state_dict(),
+                         'state_dict_decoder': net.decoder.state_dict(),
+                         }, save_path=checkpoint_path)
     return best_loss, checkpoint_path
 
 
@@ -429,7 +426,6 @@ if __name__ == "__main__":
         "--temp",
         type=float,
         default=1.0,
-        metavar="S",
         help="tau(temperature) (default: 1.0)",
     )
     parser.add_argument(
@@ -472,7 +468,7 @@ if __name__ == "__main__":
 
     ##
     # /home/shared/gail_experts
-    """
+    
     ## -------------------Set up for circle env -------------------##
     ##from arash 2021-2-1, 500 traj with shape (500, 1000, 10)
     args.train_data_path = "/mnt/SSD4/tmp_exp_gail/pytorch-a2c-ppo-acktr-gail/final_train_data/trajs_circles.pt"
@@ -482,7 +478,7 @@ if __name__ == "__main__":
     args.code_dim = 3
     args.sa_dim = (10, 2)  ## 10 + 2
     args.data_name = "circle"
-    
+    """
 
     ## -------------------Set up for cheetah vel -------------------##
     args.train_data_path = "/home/shared/gail_experts/trajs_halfcheetahvel.pt"
@@ -495,7 +491,7 @@ if __name__ == "__main__":
 
    
     ## -------------------Set up for cheetah dir -------------------##
-    """
+    
     args.train_data_path = "/home/shared/gail_experts/trajs_halfcheetahdir.pt"
     expert_dataset = ExpertDataset(
         args.train_data_path, num_trajectories=2000, subsample_frequency=4
@@ -503,8 +499,8 @@ if __name__ == "__main__":
     args.code_dim = 2
     args.sa_dim = (20, 6)  ## 20+6
     args.data_name = "cheetah-dir"
-    # """
-    """
+    
+    ##
     ## -------------------Set up for ant dir -------------------##
     args.train_data_path = "/home/shared/gail_experts/trajs_antdir.pt"
     expert_dataset = ExpertDataset(

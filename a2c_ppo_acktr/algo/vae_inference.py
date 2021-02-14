@@ -11,14 +11,16 @@ import argparse
 # parentdir = os.path.dirname(currentdir)
 # sys.path.insert(0, parentdir)
 # sys.path.insert(0, os.path.dirname(parentdir))
-# from a2c_ppo_acktr.algo.vae_model_clean import EncoderRNN
 ###############################################################################
+from a2c_ppo_acktr.algo.vae_model_clean import EncoderRNN
+from a2c_ppo_acktr.algo.behavior_clone import MlpPolicyNet
 
 from a2c_ppo_acktr.envs import VecNormalize
 from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.utils import visualize_env
 from a2c_ppo_acktr.envs import make_vec_envs
 from a2c_ppo_acktr.utils import get_vec_normalize, MujocoPlay, generate_latent_codes
+from a2c_ppo_acktr.algo.vae_model_clean import VAE_BC
 
 import matplotlib.pyplot as plt
 
@@ -31,7 +33,7 @@ from utilities import create_dir
 # GlfwContext(offscreen=True)
 
 ## from https://github.com/ArashVahabpour/sog-gail/blob/master/a2c_ppo_acktr/utils.py#L127
-def visualize_env(args, actor_critic, epoch, obsfilt, num_steps=1000):
+def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
     plt.figure(figsize=(10, 20))
     plt.set_cmap("gist_rainbow")
 
@@ -40,14 +42,14 @@ def visualize_env(args, actor_critic, epoch, obsfilt, num_steps=1000):
         for r in args.radii:
             t = np.linspace(0, 2 * np.pi, 200)
             plt.plot(r * np.cos(t), r * np.sin(t) + r, color="#d0d0d0")
-    else:
-        raise NotImplementedError
+            max_r = np.max(np.abs(args.radii))
+            plt.axis("equal")
+            plt.axis("off")
+            plt.xlim([-1.5 * max_r, 1.5 * max_r])
+            plt.ylim([-3 * max_r, 3 * max_r])
 
-    max_r = np.max(np.abs(args.radii))
-    plt.axis("equal")
-    plt.axis("off")
-    plt.xlim([-1.5 * max_r, 1.5 * max_r])
-    plt.ylim([-3 * max_r, 3 * max_r])
+    elif not args.mujoco:
+        raise NotImplementedError
 
     # preparing the environment
     device = next(actor_critic.parameters()).device
@@ -55,7 +57,9 @@ def visualize_env(args, actor_critic, epoch, obsfilt, num_steps=1000):
         import gym_sog
 
         env = gym.make(args.env_name, args=args)
-    else:
+    elif args.mujoco:
+        import rlkit
+
         env = gym.make(args.env_name)
     obs = env.reset()
 
@@ -63,12 +67,18 @@ def visualize_env(args, actor_critic, epoch, obsfilt, num_steps=1000):
     filename = os.path.join(args.results_dir, str(epoch))
 
     if args.mujoco:
-        MujocoPlay(args, env, actor_critic, filename, obsfilt).evaluate()
+        mujoco_play = MujocoPlay(args, env, actor_critic, filename, obsfilt)
+        if args.sog_gail and args.latent_optimizer == "bcs":
+            mujoco_play.evaluate_continuous()
+        else:
+            mujoco_play.evaluate_discrete()
+
     else:
         # generate rollouts and plot them
+        #for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
         for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
             latent_code = latent_code.unsqueeze(0)
-
+            
             for i in range(num_steps):
                 # randomize latent code at each step in case of vanilla gail
                 if args.vanilla:
@@ -106,15 +116,20 @@ def visualize_env(args, actor_critic, epoch, obsfilt, num_steps=1000):
 ### preparing
 ### export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/arash/.mujoco/mujoco200/bin
 if __name__ == "__main__":
-    trained_model_dir = "/mnt/SSD4/tmp_exp_gail/vae_bc/final_ckp"
-
+    # trained_model_dir = "/mnt/SSD4/tmp_exp_gail/vae_bc/final_ckp"
     device = "cuda:0"
     args = get_args()
     args.is_train = False
+    args.vanilla = False
     print(args)
 
     data_name = "circle"
     args.env_name == "Circles-v0"
+    args.sa_dim = (10, 2)
+    #data_name = "cheetah-dir"
+    #args.env_name == "cheetah-dir"
+
+    trained_model_dir = "vae_bc_final_ckp"
 
     checkpoint_path = os.path.join(
         trained_model_dir, data_name, "checkpoints/bestvae_bc_model.pth"
@@ -128,6 +143,26 @@ if __name__ == "__main__":
     ob_rms = get_vec_normalize(envs).ob_rms
     obsfilt = get_vec_normalize(envs)._obfilt
 
-    policy_net = torch.load(checkpoint_path)["state_dict_decoder"].to(device)
+    bc = VAE_BC(
+            device=device,
+            code_dim=args.latent_dim,
+            input_size_sa=args.sa_dim[0] + args.sa_dim[1],
+            input_size_state=args.sa_dim[0]
+        )
 
-    visualize_env(args, policy_net, 0, obsfilt, num_steps=200)
+    
+    
+    print("before loading")
+    bc.decoder.load_state_dict(torch.load(checkpoint_path)["state_dict_decoder"])
+    policy_net = bc.decoder.to(device)
+    print("done loading")
+
+    ############################## Temporary ##############################
+    # import ipdb
+    # ipdb.set_trace()
+    def act(self, state, latent_code, deterministic=False):
+        return None, self.select_action(state, latent_code, not deterministic), None
+    MlpPolicyNet.act = act
+    #######################################################################
+    for epoch in range(20):
+        visualize_env(args, policy_net, obsfilt, epoch, num_steps=200)

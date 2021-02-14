@@ -6,3 +6,7 @@ gail_experts/*.pt
 trained_models/
 results/
 **/*.avi
+/vae_bc_final_ckp/
+/wandb/
+/mujoco-py/
+/.vscode/

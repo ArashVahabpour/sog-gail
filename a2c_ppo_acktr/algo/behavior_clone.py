@@ -346,6 +346,9 @@ class MlpPolicyNet(PolicyNet):
             action = action_mu.to(device)
         return action
 
+    def act(self, state, latent_code, deterministic=False):
+        return None, self.select_action(state, latent_code, not deterministic), None
+
 
 # def argsparser():
 #     parser = argparse.ArgumentParser(
