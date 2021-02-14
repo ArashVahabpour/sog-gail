@@ -75,10 +75,10 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
 
     else:
         # generate rollouts and plot them
-        #for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
+        # for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
         for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
             latent_code = latent_code.unsqueeze(0)
-            
+
             for i in range(num_steps):
                 # randomize latent code at each step in case of vanilla gail
                 if args.vanilla:
@@ -126,8 +126,8 @@ if __name__ == "__main__":
     data_name = "circle"
     args.env_name == "Circles-v0"
     args.sa_dim = (10, 2)
-    #data_name = "cheetah-dir"
-    #args.env_name == "cheetah-dir"
+    # data_name = "cheetah-dir"
+    # args.env_name == "cheetah-dir"
 
     trained_model_dir = "vae_bc_final_ckp"
 
@@ -144,14 +144,12 @@ if __name__ == "__main__":
     obsfilt = get_vec_normalize(envs)._obfilt
 
     bc = VAE_BC(
-            device=device,
-            code_dim=args.latent_dim,
-            input_size_sa=args.sa_dim[0] + args.sa_dim[1],
-            input_size_state=args.sa_dim[0]
-        )
+        device=device,
+        code_dim=args.latent_dim,
+        input_size_sa=args.sa_dim[0] + args.sa_dim[1],
+        input_size_state=args.sa_dim[0],
+    )
 
-    
-    
     print("before loading")
     bc.decoder.load_state_dict(torch.load(checkpoint_path)["state_dict_decoder"])
     policy_net = bc.decoder.to(device)
@@ -162,6 +160,7 @@ if __name__ == "__main__":
     # ipdb.set_trace()
     def act(self, state, latent_code, deterministic=False):
         return None, self.select_action(state, latent_code, not deterministic), None
+
     MlpPolicyNet.act = act
     #######################################################################
     for epoch in range(20):

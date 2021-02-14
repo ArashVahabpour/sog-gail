@@ -19,6 +19,7 @@ import argparse
 # print(sys.path)
 from a2c_ppo_acktr.algo.behavior_clone import MlpPolicyNet, create_dataset
 from a2c_ppo_acktr.algo.gail import ExpertDataset
+import matplotlib.pyplot as plt 
 
 from utilities import to_tensor, save_checkpoint, onehot
 import wandb
@@ -271,25 +272,25 @@ class VAE_BC(nn.Module):
         )
         self.kld_weight = kld_weight
 
-    def forward(self, inputs, temp, hard=True):
-        """
-        Encode the whole trajectory into one latent code.
-        Decode each state with given latent code into action.
-        """
-        latent_code, z = self.encoder(inputs, temp, hard)
-        # n_steps = inputs.size(0)
-        input_fts = inputs.size(-1)
-        ## reshape as a batch forward
-        inputs = inputs.view(-1, input_fts)
-        ## TODO: double check whether this is right!!!
-        outputs_a = self.mlp_policy_net(torch.cat([inputs, latent_code]))
-        return latent_code, z, outputs_a
-
+   
+    # def forward_GG(self, inputs, temp, hard=True):
+    #     """
+    #     Encode the whole trajectory into one latent code.
+    #     Decode each state with given latent code into action.
+    #     """
+    #     latent_code, z = self.encoder(inputs, temp, hard)
+    #     # n_steps = inputs.size(0)
+    #     input_fts = inputs.size(-1)
+    #     ## reshape as a batch forward
+    #     inputs = inputs.view(-1, input_fts)
+    #     ## TODO: double check whether this is right!!!
+    #     outputs_a = self.mlp_policy_net(torch.cat([inputs, latent_code]))
+    #     return latent_code, z, outputs_a
+    
     def train(self, expert_loader, val_loader, hard=True):
         best_loss = float("inf")
         for epoch in tqdm(range(self.epochs)):
             print("\nEpoch: %d" % epoch)
-            train(epoch, self, expert_loader, self.optimizer, self.device, hard)
             if epoch % self.validate_freq == 0:
                 best_loss, checkpoint_path = validate(
                     epoch,
@@ -300,6 +301,8 @@ class VAE_BC(nn.Module):
                     hard,
                     self.checkpoint_dir,
                 )
+            train(epoch, self, expert_loader, self.optimizer, self.device, hard)
+            
         # self.load_best_checkpoint(checkpoint_path)
 
     def load_best_checkpoint(self, checkpoint_path):
@@ -318,6 +321,15 @@ class VAE_BC(nn.Module):
         KLD = torch.sum(q * log_ratio, dim=-1).mean()
         return MSE_loss + KLD * self.kld_weight, MSE_loss, KLD
 
+def visualize_circle(state, action, ax):
+    action = action.squeeze()
+    scale = 1
+    state = state.numpy()
+    action = action
+    ax.quiver(state[:,-2], state[:,-1], action[:,0]*scale, action[:,1]*scale, angles='xy', color='g')
+    ax.quiver(state[:-1,-2], state[:-1,-1], (state[1:,-2]- state[:-1,-2]) * scale, (state[1:,-1] - state[:-1,-1])*scale, angles='xy',color="r")
+    print("visualized actions", action, state)
+
 
 # TODO: Add adpat weight mechanisms
 def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
@@ -330,6 +342,9 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
 
     avg_valid_loss = best_loss + 2
     number_batches = len(val_loader)
+    ## generate all codes for BC envless inference
+    
+    
     for batch_idx, (traj_state, traj_action) in enumerate(val_loader):
         traj_state = to_tensor(traj_state, device)
         traj_action = to_tensor(traj_action, device)
@@ -345,10 +360,31 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
         valid_loss += loss.item()
         avg_valid_loss = valid_loss / (batch_idx + 1)
 
-        wandb.log({"val_loss": avg_valid_loss})
-        wandb.log({"val_mse_loss": mse})
-        wandb.log({"val_kld_loss": kld})
-        wandb.log({"val_gumbel_temp": temp})
+        wandb.log({"val_loss": avg_valid_loss, "val_mse_loss": mse, "val_kld_loss": kld, "val_gumbel_temp": temp})
+
+
+    latent_dim = net.encoder.output_size
+    all_latent_codes = torch.eye(latent_dim, device=device)
+    #plt.figure()
+    print("latent_dim", latent_dim)
+    fig, ax = plt.subplots(nrows=1, ncols=3)
+    vis_state_length = 50
+    for batch_idx, (traj_state, traj_action) in enumerate(val_loader):
+        if batch_idx == 0:
+            for j in range(latent_dim):
+                latent_code = all_latent_codes[j:j+1]
+                input_states = to_tensor(traj_state[0:1, :vis_state_length, :], device)
+                latent_code_tuple = latent_code.unsqueeze(1).repeat((1, input_states.size(1), 1))
+                decoded_actions = net.decoder(input_states, latent_code_tuple)
+                visualize_circle(traj_state[0, :vis_state_length, :], decoded_actions.cpu().detach().numpy(), ax[j])
+        else:
+            break
+    #plt.show()
+    plt.savefig("decode_action.png")
+    #wandb.log({"decoded actions": plt}) ## failed don't know why
+    wandb.log({"decoded actions": wandb.Image("decode_action.png")})
+    plt.close()
+
 
     checkpoint_path = osp.join(checkpoint_dir, "checkpoints/bestvae_bc_model.pth")
     if avg_valid_loss <= best_loss:
@@ -400,10 +436,7 @@ def train(epoch, net, dataloader, optimizer, device, hard):
         if batch_idx % 10 == 0:
             temp = np.maximum(temp * np.exp(-ANNEAL_RATE * batch_idx), temp_min)
 
-        wandb.log({"train_loss": train_loss / (batch_idx + 1)})
-        wandb.log({"train_gumbel_temp": temp})
-        wandb.log({"train_mse_loss": mse})
-        wandb.log({"train_kld_loss": kld})
+        wandb.log({"train_loss": train_loss / (batch_idx + 1), "train_gumbel_temp": temp, "train_mse_loss": mse, "train_kld_loss": kld})
 
 
 if __name__ == "__main__":

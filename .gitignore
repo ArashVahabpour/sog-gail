@@ -10,3 +10,4 @@ results/
 /wandb/
 /mujoco-py/
 /.vscode/
+*.png
