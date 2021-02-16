@@ -135,7 +135,7 @@ def save_checkpoint(state, save_path='models/checkpoint.pth.tar'):
 
 # TODO: use torch.nn.functional.one_hot
 def onehot(data, dim: int):
-    # return torch.zeros(*data.shape[:-1], dim).scatter_(-1, data, 1)
+    # return torch.zeros(*data.shape, dim).scatter_(-1, data.unsqueeze(-1), 1)
     fake_z = np.zeros((data.shape[0], dim))
     row = np.arange(data.shape[0])
     fake_z[row, data] = 1

@@ -12,6 +12,8 @@ import os.path as osp
 import argparse
 from plotly.figure_factory import create_quiver
 import plotly.graph_objects as go
+from typing import Union, Dict
+from sklearn.metrics.cluster import contingency_matrix
 
 # currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 # parentdir = os.path.dirname(currentdir)
@@ -19,88 +21,161 @@ import plotly.graph_objects as go
 # sys.path.insert(0, parentdir)
 # sys.path.insert(0, os.path.dirname(parentdir))
 # print(sys.path)
-from a2c_ppo_acktr.algo.behavior_clone import MlpPolicyNet, create_dataset
+from a2c_ppo_acktr.algo.behavior_clone import MlpPolicyNet
 from a2c_ppo_acktr.algo.gail import ExpertDataset
 import matplotlib.pyplot as plt
 
 from utilities import merge_plots, to_tensor, save_checkpoint, onehot
+from baselines.common.misc_util import boolean_flag
 import wandb
 
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(
-        self, file_name, num_trajectories=4, subsample_frequency=20, mode="Traj"
+        self,
+        file_name: str,
+        num_trajectories: int = None,
+        subsample_frequency: int = 20,
+        modal_field: str = "radii",
+        mode: str = "trajectory",
+        one_hot: bool = True,
+        one_hot_dim: int = None,
     ):
         """
         Mode:
-        1. Trajectory based: each sample will return one traj of (state, action) pairs
-        2. State based: each sample will return (state, action) pair
+        1. Trajectory based: each sample will return one entire traj of (state, action, code, length)
+        2. Transition based: each sample will return (state, action, code)
         """
+        # TODO: Currently the one-hot encoding is done in memory all at once. Potentially it needs to be moved to a custom DataLoader like ExpertTrajectory above
+        # TODO: Validate the dimensions
+        assert mode in ["trajectory", "transition"], "Unknown mode"
         self.mode = mode
-        all_trajectories = torch.load(file_name)
+        self.trajectories = self._subsample(
+            torch.load(file_name), num_trajectories, subsample_frequency
+        )
+        self.lengths = self.trajectories["lengths"]
+        num_traj_l, = self.lengths.shape
 
-        perm = torch.randperm(all_trajectories["states"].size(0))
-        idx = perm[:num_trajectories]
+        self.states = self.trajectories["states"]
+        num_traj_x, max_traj_len_x, dim_state = self.states.shape
 
-        self.trajectories = {}
+        self.actions = self.trajectories["actions"]
+        num_traj_y, max_traj_len_y, dim_action = self.actions.shape
 
-        # See https://github.com/pytorch/pytorch/issues/14886
-        # .long() for fixing bug in torch v0.4.1
-        start_idx = torch.randint(
-            0, subsample_frequency, size=(num_trajectories,)
-        ).long()
+        modal = self.trajectories[modal_field]
 
-        for k, v in all_trajectories.items():
-            data = v[idx]
+        traj_codes = self._assign_codes(modal, one_hot_dim)
+        num_traj_c, = traj_codes.shape
 
-            if k == "radii":
-                continue
-            if k != "lengths":
-                samples = []
-                for i in range(num_trajectories):
-                    samples.append(data[i, start_idx[i] :: subsample_frequency])
-                self.trajectories[k] = torch.stack(samples)
-            else:
-                self.trajectories[k] = data // subsample_frequency
+        self.num_transitions = self.lengths.sum()
+        try:
+            # for torch.tensor typed lengths
+            self.num_transitions = self.num_transitions.item()
+        except:
+            pass
 
-        self.length = self.trajectories["lengths"].sum().item()
+        self._prepare_codes(traj_codes, max_traj_len_x, one_hot)
 
-        if mode == "state":
-            for i in range(num_trajectories):
-                self.get_idx.append((i, i))
-        else:
-            traj_idx = 0
-            i = 0
-            self.get_idx = []
+        if self.mode == "transition":
+            self.i2traj_idx = self._make_i2traj_idx()
+        return
 
-            for j in range(self.length):
-
-                # when `i` grows beyond one of the trajectories, increment the `traj_idx` and accordingly set back `i`
-                while self.trajectories["lengths"][traj_idx].item() <= i:
-                    i -= self.trajectories["lengths"][traj_idx].item()
-                    traj_idx += 1
-
-                self.get_idx.append((traj_idx, i))
-                i += 1
+    def _make_i2traj_idx(self):
+        traj_i_vec = np.repeat(
+            np.arange(len(self.lengths)), self.lengths
+        ).reshape(-1, 1)
+        j_vec = np.concatenate([np.arange(n) for n in self.lengths]).reshape(-1, 1)
+        return np.hstack([traj_i_vec, j_vec])
 
     def __len__(self):
-        return self.length
+        if self.mode == "trajectory":
+            return self.num_trajectories
+        if self.mode == "transition":
+            return self.num_transitions
 
     def __getitem__(self, i):
-        if self.mode == "state":
-            traj_idx, i = self.get_idx[i]
-
+        if self.mode == "trajectory":
+            return self.states[i], self.actions[i], self.codes[i], self.lengths[i]
+        if self.mode == "transition":
+            traj_i, j = self.i2traj_idx[i, 0], self.i2traj_idx[i, 1]
             return (
-                self.trajectories["states"][traj_idx][i],
-                self.trajectories["actions"][traj_idx][i],
+                self.states[traj_i, j],
+                self.actions[traj_i, j],
+                self.codes[traj_i, j],
             )
 
-        traj_idx, _ = self.get_idx[i]
+    def _prepare_codes(self, c: torch.Tensor, traj_len: int, one_hot: bool):
+        # TODO: fake codes are useless now, either ditch them or add an option for them
+        if self.mode == "transition":
+            self.codes, self.fake_code_all = (
+                c.unsqueeze(-1).expand((-1, traj_len)),
+                torch.randint(
+                    self.code_dim, size=(self.num_trajectories, traj_len)
+                ).long(),
+            )
+        elif self.mode == "trajectory":
+            self.codes, self.fake_code_all = (
+                c,
+                torch.randint(
+                    self.code_dim, size=(self.num_trajectories,)
+                ).long(),
+            )
 
-        return (
-            self.trajectories["states"][traj_idx][:],
-            self.trajectories["actions"][traj_idx][:],
-        )
+        if one_hot:
+            self.codes, self.fake_code_all = (
+                F.one_hot(self.codes, self.code_dim),
+                F.one_hot(self.fake_code_all, self.code_dim),
+            )
+
+    def _assign_codes(self, modal, one_hot_dim):
+        # change to scalar encoding here in case it's useful
+        unique_c, inv = np.unique(modal, return_inverse=True)
+        code_dim = len(unique_c)
+
+        codes = np.argsort(np.argsort(unique_c))
+        self.code_map = dict(zip(codes, unique_c))
+        c = codes[inv]
+        # make sure that one_hot_dim >= the inferred dim
+        if one_hot_dim is None:
+            one_hot_dim = code_dim
+        elif one_hot_dim < code_dim:
+            raise ValueError(
+                f"one_hot_dim ({one_hot_dim}) is smaller than the"
+                f" number of unique values in c ({code_dim})"
+            )
+        self.code_dim = one_hot_dim
+        return torch.from_numpy(c).long()
+
+    def _subsample(
+        self,
+        data_dict: Dict,
+        num_trajectories: Union[int, None],
+        subsample_frequency: int,
+    ) -> Dict:
+        sample_dict = {}
+        total_trajectories = data_dict["lengths"].size(0)
+        if num_trajectories is None:
+            self.num_trajectories = total_trajectories
+        else:
+            self.num_trajectories = num_trajectories
+        perm = torch.randperm(total_trajectories)
+        traj_inds = perm[:num_trajectories]
+        start_idx = torch.randint(
+            0, subsample_frequency, size=(self.num_trajectories,)
+        ).long()
+
+        for k, v in data_dict.items():
+            data = v[traj_inds]
+            if k in ["states", "actions"]:
+                samples = []
+                for i in range(self.num_trajectories):
+                    samples.append(data[i, start_idx[i] :: subsample_frequency])
+                sample_dict[k] = torch.stack(samples)
+            elif k != "lengths":
+                sample_dict[k] = v
+            else:
+                sample_dict[k] = data // subsample_frequency
+        return sample_dict
 
 
 def create_train_val_split(dataset, batch_size=16, shuffle=True, validation_split=0.1):
@@ -359,12 +434,16 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
     number_batches = len(val_loader)
     ## generate all codes for BC envless inference
 
-    for batch_idx, (traj_state, traj_action) in enumerate(val_loader):
+    true_codes_list = []
+    encoded_codes_list = []
+    for batch_idx, (traj_state, traj_action, traj_code, traj_len) in enumerate(val_loader):
         traj_state = to_tensor(traj_state, device)
         traj_action = to_tensor(traj_action, device)
+        true_codes_list.append(to_tensor(traj_code, device))
         data_input = torch.cat([traj_state, traj_action], axis=2)
 
         latent_code, z = net.encoder(data_input, temp, hard=hard)
+        encoded_codes_list.append(latent_code.detach())
         latent_code_tuple = latent_code.unsqueeze(1).repeat((1, traj_state.shape[1], 1))
 
         decoded_actions = net.decoder(traj_state, latent_code_tuple)
@@ -383,6 +462,26 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
             }
         )
 
+    true_codes, encoded_codes = (
+        torch.cat(true_codes_list).cpu().detach().numpy().astype(int),
+        torch.cat(encoded_codes_list).argmax(dim=-1).cpu().detach().numpy(),
+    )
+    radii_list = [
+        str(val_loader.dataset.code_map[i]) for i in range(val_loader.dataset.code_dim)
+    ]
+    print(true_codes)
+    print(encoded_codes)
+    print(radii_list)
+
+    wandb.log(
+        {
+            "decode_contingency_mat": wandb.sklearn.plot_confusion_matrix(
+                true_codes, encoded_codes, radii_list
+            )
+        }
+    )
+
+
     latent_dim = net.encoder.output_size
     all_latent_codes = torch.eye(latent_dim, device=device)
     # plt.figure()
@@ -390,7 +489,7 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
     # fig, ax = plt.subplots(nrows=1, ncols=3)
     fig_list = []
     vis_state_length = 50
-    for batch_idx, (traj_state, traj_action) in enumerate(val_loader):
+    for batch_idx, (traj_state, traj_action, traj_code, traj_len) in enumerate(val_loader):
         if batch_idx == 0:
             for j in range(latent_dim):
                 latent_code = all_latent_codes[j : j + 1]
@@ -413,7 +512,7 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
     # plt.savefig("decode_action.png")
     wandb.log({"decoded actions": merge_plots(fig_list)})  ## failed don't know why
     # wandb.log({"decoded actions": wandb.Image("decode_action.png")})
-    plt.close()
+    # plt.close()
 
     checkpoint_path = osp.join(checkpoint_dir, "checkpoints/bestvae_bc_model.pth")
     if avg_valid_loss <= best_loss:
@@ -444,7 +543,7 @@ def train(epoch, net, dataloader, optimizer, device, hard):
     ANNEAL_RATE = 0.00003
     loss = 0
 
-    for batch_idx, (traj_state, traj_action) in enumerate(dataloader):
+    for batch_idx, (traj_state, traj_action, traj_code, traj_len) in enumerate(dataloader):
         optimizer.zero_grad()
         ## traj_state: (seq_len, batch, hidden_size)
         # tmp_input = torch.cat([traj_state.reshape(-1, 10), traj_action.reshape(-1, 2)], axis=1).unsqueeze(1)
@@ -517,6 +616,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--kld-weight", type=float, default=1, help="KLD loss weight in vae"
     )
+    boolean_flag(
+        parser, "wandb", default=True,
+        help="--wandb will enable wandb logging, --no-wandb will disable it"
+    )
 
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -527,7 +630,10 @@ if __name__ == "__main__":
         USE_CUDA = True
 
     ############### Train ###############
-    wandb.init(project="VAE-BC")
+    if args.wandb:
+        wandb.init(project="VAE-BC")
+    else:
+        wandb.init(mode="disabled")
 
     args.epochs = 30
     args.lr = 1e-4
@@ -541,9 +647,11 @@ if __name__ == "__main__":
 
     ## -------------------Set up for circle env -------------------##
     ##from arash 2021-2-1, 500 traj with shape (500, 1000, 10)
-    args.train_data_path = "/mnt/SSD4/tmp_exp_gail/pytorch-a2c-ppo-acktr-gail/final_train_data/trajs_circles.pt"
+    # args.train_data_path = "/mnt/SSD4/tmp_exp_gail/pytorch-a2c-ppo-acktr-gail/final_train_data/trajs_circles.pt"
+    # args.train_data_path = "/home/shared/datasets/gail_experts/trajs_circles_new.pt"
+    args.train_data_path = "/home/shared/datasets/gail_experts/trajs_circles_mix.pt"
     expert_dataset = ExpertDataset(
-        args.train_data_path, num_trajectories=500, subsample_frequency=2
+        args.train_data_path, num_trajectories=500, subsample_frequency=2, one_hot=False
     )
     args.code_dim = 3
     args.sa_dim = (10, 2)  ## 10 + 2

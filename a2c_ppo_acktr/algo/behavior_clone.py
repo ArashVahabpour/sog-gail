@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 
 from utilities import normal_log_density, set_random_seed, to_tensor, save_checkpoint, load_pickle, onehot, get_logger
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Tuple, Dict
 # import tensorflow as tf
 
 
@@ -188,8 +188,9 @@ def _validate(epoch, net, val_loader, criterion, device, best_loss, writer, chec
     return best_loss, checkpoint_path
 
 
-def load_data(data_file, one_hot: bool = True, one_hot_dim: int = None, code_map=None):
-    # TODO: remove the radii selection lines
+def load_expert_data(
+    data_file, one_hot: bool = True, one_hot_dim: int = None, code_map=None
+) -> Tuple[torch.Tensor, torch.Tensor, np.ndarray, np.ndarray, Dict]:
     # TODO: Currently the one-hot encoding is done in memory all at once. Potentially it needs to be moved to a custom DataLoader like ExpertTrajectory above
     """For Arash's format
     """
@@ -198,17 +199,17 @@ def load_data(data_file, one_hot: bool = True, one_hot_dim: int = None, code_map
     lengths = data_dict["lengths"]
     # lengths = lengths[data_dict["radii"] == 10]
 
-    X_all = data_dict["states"]
+    states_all = data_dict["states"]
+    # num_traj, max_traj_len_x, dim_state = states_all.shape
     # X_all = X_all[data_dict["radii"] == 10]
-    num_traj, max_traj_len_x, dim_state = X_all.shape
     # X_all = X_all.reshape(-1, dim_state)
-    X_all = torch.cat([X[:l] for X, l in zip(X_all, lengths)], dim=0)
+    states_all = torch.cat([X[:l] for X, l in zip(states_all, lengths)], dim=0)
 
-    y_all = data_dict["actions"]
+    action_all = data_dict["actions"]
+    # num_traj, max_traj_len_y, dim_action = action_all.shape
     # y_all = y_all[data_dict["radii"] == 10]
-    num_traj, max_traj_len_y, dim_action = y_all.shape
     # y_all = y_all.reshape(-1, dim_action)
-    y_all = torch.cat([y[:l] for y, l in zip(y_all, lengths)], dim=0)
+    action_all = torch.cat([y[:l] for y, l in zip(action_all, lengths)], dim=0)
 
     c = data_dict["radii"]
     # c = c[data_dict["radii"] == 10]
@@ -235,16 +236,22 @@ def load_data(data_file, one_hot: bool = True, one_hot_dim: int = None, code_map
 
     try:
         # for torch.tensor lengths
-        c_all, fake_c_all = (np.repeat(c, lengths),
-                             np.random.randint(dim, size=lengths.sum().item()))
+        code_all, fake_code_all = (
+            np.repeat(c, lengths),
+            np.random.randint(dim, size=lengths.sum().item()),
+        )
     except:
         # for np.array lengths
-        c_all, fake_c_all = (np.repeat(c, lengths),
-                             np.random.randint(dim, size=lengths.sum()))
+        code_all, fake_code_all = (
+            np.repeat(c, lengths),
+            np.random.randint(dim, size=lengths.sum()),
+        )
 
     if one_hot:
-        c_all, fake_c_all = (onehot(c_all, dim=one_hot_dim),
-                             onehot(fake_c_all, dim=one_hot_dim))
+        code_all, fake_code_all = (
+            onehot(code_all, dim=one_hot_dim),
+            onehot(fake_code_all, dim=one_hot_dim),
+        )
 
     # c_all = torch.zeros(num_traj, traj_len, dtype=torch.int64)
     # c_all[c == 10, :] = 1
@@ -252,12 +259,12 @@ def load_data(data_file, one_hot: bool = True, one_hot_dim: int = None, code_map
     # c_all[c == -10, :] = 3
     # c_all = c_all.flatten()
 
-    return X_all, y_all, c_all, fake_c_all, code_map
+    return states_all, action_all, code_all, fake_code_all, code_map
 
 
 def create_dataset(train_data_path, val_data_path=None, fake=True, one_hot=True, one_hot_dim=None):
     from sklearn.model_selection import train_test_split
-    X, y, c, fake_c, code_map = load_data(
+    X, y, c, fake_c, code_map = load_expert_data(
         train_data_path, one_hot=one_hot, one_hot_dim=one_hot_dim
     )
     if fake:
@@ -267,7 +274,7 @@ def create_dataset(train_data_path, val_data_path=None, fake=True, one_hot=True,
             X, y, c, test_size=0.2)
     else:
         X_train, y_train, c_train = X, y, c
-        X_val, y_val, c_val, fake_c_val, code_map = load_data(
+        X_val, y_val, c_val, fake_c_val, code_map = load_expert_data(
             val_data_path, one_hot=one_hot, code_map=code_map
         )
         if fake:
