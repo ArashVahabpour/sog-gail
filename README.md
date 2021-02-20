@@ -3,7 +3,8 @@ This repository is blah blah blah... This is a generic code for gym environments
 Continuous latent spaces not implemented
 
 ```shell script
-python train.py --name sog-pretrain-coef-0.1 --env-name Circles-v0 --sog-gail --sog-gail-coef 0.1 --latent-optimizer ohs --latent-dim 3 --gpu-id 1 --adjust-scale```
+python train.py --name sog-pretrain-coef-0.1 --env-name Circles-v0 --sog-gail --sog-gail-coef 0.1 --latent-optimizer ohs --latent-dim 3 --gpu-id 1 --adjust-scale
+```
 
 ---
 
