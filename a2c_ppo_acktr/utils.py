@@ -201,10 +201,27 @@ class MujocoBenchmark(MujocoBase):
         plt.savefig(os.path.join(args.results_dir, f'{epoch}.png'))
         plt.close()
 
+        plt.figure()
+        plt.hist(vel_mean, bins=np.linspace(1.5, 3, 10))
+        plt.savefig(os.path.join(args.results_dir, f'{epoch}_hist.png'))
+        plt.close()
+
     def ant_plot(self, num_repeats, epoch):
         args = self.args
         plt.figure()
-        for j, latent_code in enumerate(torch.eye(args.latent_dim, device=args.device)):
+
+        continuous = args.sog_gail and args.latent_optimizer == 'bcs'
+        if continuous:
+            assert args.latent_dim == 1, 'higher latent dim not implemented'
+            num_codes = 30
+            num_repeats = 1
+            cdf = np.linspace(.1, .9, num_codes)
+            m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+            all_codes = m.icdf(torch.tensor(cdf, dtype=torch.float32)).to(args.device)[:, None]
+        else:
+            all_codes = torch.eye(args.latent_dim, device=args.device)
+
+        for j, latent_code in enumerate(all_codes):
             latent_code = latent_code[None]
             for _ in range(num_repeats):
                 s = self.env.reset()
@@ -218,7 +235,7 @@ class MujocoBenchmark(MujocoBase):
                     s, r, done, infos = self.env.step(action)
                     xpos.append(infos['xpos'])
                 xpos = np.array(xpos)
-                plt.plot(xpos[:, 0], xpos[:, 1], color=plt.cm.Dark2.colors[j])
+                plt.plot(xpos[:, 0], xpos[:, 1], color=('b' if continuous else plt.cm.Dark2.colors[j]))
         plt.plot([0], [0], marker='o', markersize=3, color='k')
         plt.axis('off')
         plt.axis('equal')
@@ -226,11 +243,139 @@ class MujocoBenchmark(MujocoBase):
         plt.close()
         self.env.close()
 
+    def ant_robustness_test(self, num_cycles, num_steps, epoch):
+        args = self.args
+        plt.figure()
+        s = self.env.reset()
+        for c in range(num_cycles):
+            for j, latent_code in enumerate(torch.eye(args.latent_dim, device=args.device)):
+                xpos = []
+                latent_code = latent_code[None]
+                for step in range(num_steps):
+                    print(c,j, step)
+                    s = self.obsfilt(s, update=False)
+                    s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+                    with torch.no_grad():
+                        _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    action = actions_tensor[0].cpu().numpy()
+                    s, r, done, infos = self.env.step(action)
+                    xpos.append(infos['xpos'])
+                xpos = np.array(xpos)
+                plt.plot(xpos[:, 0], xpos[:, 1], color=plt.cm.Dark2.colors[j])
+        plt.plot([0], [0], marker='o', markersize=3, color='k')
+        plt.axis('off')
+        plt.axis('equal')
+        plt.savefig(os.path.join(args.results_dir, f'{epoch}_robustness.png'))
+        plt.close()
+        self.env.close()
+
+    def collect_rewards(self):
+        """
+        Creates matrix of rewards of latent codes vs radii
+
+        Returns:
+            all_mode_rewards_mean: numpy array of shape [latent_dim x latent_dim] containing mean reward collected in a trajectory
+            all_mode_rewards_std: numpy array of shape [latent_dim x latent_dim] containing std of rewards collected among trajectories
+        """
+
+        args = self.args
+        device = args.device
+        latent_dim = args.latent_dim
+
+        trajs_per_mode = 10
+        max_steps = 200
+
+        all_mode_rewards_mean, all_mode_rewards_std = [], []
+        for i, latent_code in enumerate(torch.eye(latent_dim, device=device)):
+            latent_code = latent_code[None]
+            all_traj_rewards = []
+            for _ in range(trajs_per_mode):
+                obs = self.env.reset()
+                traj_rewards = np.zeros(latent_dim)
+                for step in range(max_steps):
+                    with torch.no_grad():
+                        # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
+                        obs = self.obsfilt(obs, update=False)
+                        obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
+                        _, actions_tensor, _ = self.actor_critic.act(obs_tensor, latent_code, deterministic=True)
+                        action = actions_tensor[0].cpu().numpy()
+
+                    obs, _, _, infos = self.env.step(action)
+                    traj_rewards += np.array(infos['rewards'])
+                all_traj_rewards.append(traj_rewards)
+
+            all_traj_rewards = np.stack(all_traj_rewards)
+            all_mode_rewards_mean.append(all_traj_rewards.mean(axis=0))
+            all_mode_rewards_std.append(all_traj_rewards.std(axis=0))
+
+        return np.stack(all_mode_rewards_mean), np.stack(all_mode_rewards_std)
+
+
+class CirclesBenchmark:
+    def __init__(self, args, env, actor_critic, filename, obsfilt):
+        self.env = env
+        self.max_steps = 1000
+        self.trajs_per_mode = 10
+        self.actor_critic = actor_critic
+        self.args = args
+        self.latent_dim = args.latent_dim
+        self.obsfilt = obsfilt
+        self.filename = filename
+
+    def collect_rewards(self, use_expert=False):
+        """
+        Creates matrix of rewards of latent codes vs radii
+
+        Args:
+            use_expert: determines whether the trajectories should be generated by expert or agent policy
+
+        Returns:
+            all_mode_rewards_mean: numpy array of shape [latent_dim x latent_dim] containing mean reward collected in a trajectory
+            all_mode_rewards_std: numpy array of shape [latent_dim x latent_dim] containing std of rewards collected among trajectories
+        """
+
+        args = self.args
+        device = args.device
+        latent_dim = args.latent_dim
+        radii = args.radii
+
+        if use_expert:
+            from gym_sog.envs.circles_expert import CirclesExpert
+            circles_expert = CirclesExpert(self.args)
+
+        all_mode_rewards_mean, all_mode_rewards_std = [], []
+        for i, latent_code in enumerate(torch.eye(latent_dim, device=device)):
+            latent_code = latent_code[None]
+            all_traj_rewards = []
+            for _ in range(self.trajs_per_mode):
+                obs = self.env.reset()
+                traj_rewards = np.zeros(latent_dim)
+                for step in range(self.max_steps):
+                    if use_expert:
+                        action = circles_expert.policy(obs, radii[i])
+                    else:
+                        with torch.no_grad():
+                            # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
+                            obs = self.obsfilt(obs, update=False)
+                            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[None]
+                            _, actions_tensor, _ = self.actor_critic.act(obs_tensor, latent_code, deterministic=True)
+                            action = actions_tensor[0].cpu().numpy()
+
+                    obs, _, _, infos = self.env.step(action)
+                    traj_rewards += np.array(infos['rewards'])
+                all_traj_rewards.append(traj_rewards)
+
+            all_traj_rewards = np.stack(all_traj_rewards)
+            all_mode_rewards_mean.append(all_traj_rewards.mean(axis=0))
+            all_mode_rewards_std.append(all_traj_rewards.std(axis=0))
+
+        return np.stack(all_mode_rewards_mean), np.stack(all_mode_rewards_std)
+
 
 def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
     filename = os.path.join(args.results_dir, str(epoch))
 
-    if args.env_name == 'Circles-v0':
+    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
         plt.figure(figsize=(10, 20))
         plt.set_cmap('gist_rainbow')
         # plotting the actual circles
@@ -322,39 +467,57 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
     else:
         raise NotImplementedError
 
+#
+# def plot_ant_expert(states, args):
+#     plt.figure(figsize=(20, 20))
+#     for i, traj in enumerate(states):
+#         if i < 100:
+#             plt.plot(traj[:, 0], traj[:, 1], color='blue')
+#     plt.plot([0], [0], marker='o', markersize=3, color='k')
+#     plt.savefig(os.path.join(args.results_dir, 'expert.png'))
+#     plt.close()
+
 
 def benchmark_env(args, actor_critic, obsfilt, epoch):
     filename = os.path.join(args.results_dir, str(epoch))
 
     if args.mujoco:
         import rlkit
-        env = gym.make(args.env_name)
+        kwargs = {}
+        if args.env_name == 'AntDir-v0' and not (args.sog_gail and args.latent_optimizer == 'bcs'):
+            kwargs['n_tasks'] = args.latent_dim
+        env = gym.make(args.env_name, **kwargs)
         mujoco_bench = MujocoBenchmark(args, env, actor_critic, filename, obsfilt)
         if args.env_name == 'HalfCheetahVel-v0':
             mujoco_bench.halfcheetahvel_plot(50, 1, epoch)
-        elif args.env_name in {'AntGoal-v0', 'AntDir-v0'}:
-            mujoco_bench.ant_plot(10, epoch)
+        elif args.env_name == 'AntDir-v0':
+            mujoco_bench.ant_plot(3, epoch)
+            # rew_mean, rew_std = mujoco_bench.collect_rewards()
+            # print(f"""
+            #         policy:
+            #         {rew_mean}
+            #         +/-
+            #         {rew_std}
+            #         """)
+            # mujoco_bench.ant_robustness_test(10, 50, epoch)
         else:
             raise NotImplementedError
+    elif args.env_name == 'Circles-v0':
+        import gym_sog
+        env = gym.make(args.env_name, args=args)
+        circles_bench = CirclesBenchmark(args, env, actor_critic, filename, obsfilt)
+        rew_mean, rew_std = circles_bench.collect_rewards()
+        expert_rew_mean, expert_rew_std = circles_bench.collect_rewards(use_expert=True)
+        print(f"""
+        policy: 
+        {rew_mean} 
+        +/- 
+        {rew_std}
+        
+        expert: 
+        {expert_rew_mean} 
+        +/- 
+        {expert_rew_std}
+        """)
     else:
         raise NotImplementedError
-
-
-def single_traj_loader(expert_filename, batch_size):
-    """
-    a generator that returns (s, a) samples of a shared sample trajectory
-
-    Args:
-        expert_filename: expert file name which contains the following tensors
-            states: tensor of size `num_trajs x num_steps x state_dim`
-            actions: tensor of size `num_trajs x num_steps x action_dim`
-        batch_size: size of batches to return
-    """
-
-    expert = torch.load(expert_filename)
-    states, actions = expert['states'], expert['actions']
-
-    while True:
-        traj_idx = np.random.randint(states.shape[0])
-        step_idx = np.random.randint(low=0, high=states.shape[1], size=batch_size)
-        yield states[traj_idx, step_idx], actions[traj_idx, step_idx]

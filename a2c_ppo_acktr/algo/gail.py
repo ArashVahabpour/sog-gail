@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data
-from torch.optim import RMSprop, Adam
+from torch.optim import Adam
 from torch import autograd
 
 from baselines.common.running_mean_std import RunningMeanStd
@@ -15,7 +15,6 @@ class Discriminator(nn.Module):
 
         self.args = args
         self.device = args.device
-        self.wasserstein = args.wasserstein
 
         self.trunk = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
@@ -24,8 +23,7 @@ class Discriminator(nn.Module):
 
         self.trunk.train()
 
-        optimizer = Adam #= RMSprop if args.wasserstein else Adam
-        self.optimizer = optimizer(self.trunk.parameters())
+        self.optimizer = Adam(self.trunk.parameters())
 
         self.returns = None
         self.ret_rms = RunningMeanStd(shape=())
@@ -79,16 +77,12 @@ class Discriminator(nn.Module):
             expert_d = self.trunk(
                 torch.cat([expert_state, expert_action], dim=1))
 
-            if self.wasserstein:
-                expert_loss = expert_d.mean()
-                policy_loss = -policy_d.mean()
-            else:
-                expert_loss = F.binary_cross_entropy_with_logits(
-                    expert_d,
-                    torch.ones(expert_d.size()).to(self.device))
-                policy_loss = F.binary_cross_entropy_with_logits(
-                    policy_d,
-                    torch.zeros(policy_d.size()).to(self.device))
+            expert_loss = F.binary_cross_entropy_with_logits(
+                expert_d,
+                torch.ones(expert_d.size()).to(self.device))
+            policy_loss = F.binary_cross_entropy_with_logits(
+                policy_d,
+                torch.zeros(policy_d.size()).to(self.device))
 
             gail_loss = expert_loss + policy_loss
             grad_pen = self.compute_grad_pen(expert_state, expert_action,
@@ -101,20 +95,14 @@ class Discriminator(nn.Module):
             (gail_loss + grad_pen).backward()
             self.optimizer.step()
 
-            if self.wasserstein:
-                self.clip_weights()
         return loss / n
-
-    def clip_weights(self):
-        for p in self.trunk.parameters():
-            p.data.clamp_(-0.01, 0.01)
 
     def predict_reward(self, state, action, gamma, masks, update_rms=True):
         with torch.no_grad():
             self.eval()
             d = self.trunk(torch.cat([state, action], dim=1))
             s = torch.sigmoid(d)
-            reward = -d if self.wasserstein else s.log() - (1 - s).log()
+            reward = s.log() - (1 - s).log()
 
             if self.returns is None:
                 self.returns = reward.clone()

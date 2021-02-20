@@ -57,7 +57,7 @@ for i in range(num_seeds):
         def template(key):
             value = job_args[key]
             try:
-                if isnan(value):
+                if key not in var_keys + bool_keys or isnan(value):
                     return ''
             except:
                 pass
@@ -71,7 +71,7 @@ for i in range(num_seeds):
                 s += f' {value}'
             return s
 
-        command = ' '.join([f'python {args.task}.py'] + list(filter(bool, map(template, var_keys + bool_keys))))
+        command = ' '.join([f'python {args.task}.py'] + list(filter(bool, map(template, ex.columns))))
         if args.task == 'train':
             command += f' --seed {i}'
         panes_list.append(command)

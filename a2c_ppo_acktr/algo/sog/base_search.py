@@ -9,7 +9,6 @@ class BaseSearch:
         self.cuda = args.cuda
         self.latent_dim = args.latent_dim
         self.latent_batch_size = args.latent_batch_size
-        self.shared_code = args.shared_code
         self.criterion = nn.MSELoss()
         self.criterion_no_reduction = nn.MSELoss(reduction='none')
 

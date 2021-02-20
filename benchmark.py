@@ -2,18 +2,17 @@ import torch
 import os
 
 from a2c_ppo_acktr.arguments import get_args
-from a2c_ppo_acktr.utils import benchmark_env
+from a2c_ppo_acktr.utils import benchmark_env#, plot_ant_expert
 from a2c_ppo_acktr.envs import make_vec_envs
 from a2c_ppo_acktr.utils import get_vec_normalize
 
 
 # initialize
-args = get_args()
-args.is_train = False
+args = get_args(is_train=False)
 
 for epoch in range(0, int(args.num_env_steps) // args.num_steps, args.save_interval):
     print(epoch)
-    load_path = os.path.join(args.save_dir, args.name, f'{args.env_name}_{epoch}.pt')
+    load_path = os.path.join(args.save_filename.format(args.env_name, epoch))
     envs = make_vec_envs(args.env_name, args.seed, 1,
                          args.gamma, args.log_dir, args.device, False, args)
     ob_rms = get_vec_normalize(envs).ob_rms
@@ -26,3 +25,9 @@ for epoch in range(0, int(args.num_env_steps) // args.num_steps, args.save_inter
 
     # generate a rollout and visualize
     benchmark_env(args, actor_critic, obfilt, epoch)
+
+# if args.env_name == 'AntGoal-v0':
+#     # plot expert trajs
+#     expert_filename = './gail_experts/trajs_antgoal_5.pt'
+#     states = torch.load(expert_filename)['states']
+#     plot_ant_expert(states, args)

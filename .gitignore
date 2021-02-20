@@ -6,3 +6,4 @@ gail_experts/*.pt
 trained_models/
 results/
 **/*.avi
+run_all.yaml

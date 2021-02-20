@@ -5,12 +5,11 @@ import numpy as np
 gym.logger.set_level(40)
 
 
-class CirclesEnv(gym.Env):
+class EllipsesEnv(gym.Env):
     """
     Description:
-        A moving agent should be moving on perimeter of a circle. If it is off the circle, the agent first moves towards
-        the center of the circle, then it moves counter-clockwise around it.
-
+        A moving agent should be moving on perimeter of an ellipse/circle. If it is off the ellipse/circle, the agent first moves towards
+        the center of the ellipse/circle, then it moves counter-clockwise around it.
     Observation:
         Type: Box(2*N), where N is `state_len`
         Num        Observation                          Min                    Max
@@ -19,7 +18,6 @@ class CirclesEnv(gym.Env):
         ...
         2N         Agent Position X at time t - N       -L                     L
         2N+1       Agent Position Y at time t - N       -2L                    2L
-
         |-----|-----|
         |     |     |
         |     2L    |
@@ -29,26 +27,22 @@ class CirclesEnv(gym.Env):
         |     2L    |
         |     |     |
         |-----|-----|
-
     Actions:
         Type: Box(2)
         Num        Observation                          Min                    Max
         0          Agent Velocity X                     -L                     L
         1          Agent Velocity Y                     -L                     L
-
     Reward:
         We do not defined the reward, as we only work with experts with hidden rewards.
-
     Starting State:
         All observations are assigned a normal random value in [-0.05..0.05]
-
     Episode Termination:
         Agent Position is more than 20 (center of the cart reaches the edge of
         the display).
         Episode length is greater than 200.
         Solved Requirements:
-        Considered solved when the average distance from the circle is less than 0.05 x radius over 100 consecutive
-        trials.
+        Considered solved when the average distance from the ellipse/circle is less than 0.05 x smaller radius over 100
+        consecutive trials.
     """
 
     metadata = {
@@ -57,15 +51,15 @@ class CirclesEnv(gym.Env):
     }
 
     def __init__(self, args, state_len=5):
-        super(CirclesEnv, self).__init__()
+        super(EllipsesEnv, self).__init__()
 
-        self.radii = args.radii
-        self.radius = None
+        self.radii = np.array(args.radii).reshape(-1, 2)
+        self.radius_x, self.radius_y = None, None
 
         # the agent can move in an area of x, y between boundaries (same as rendering boundaries)
-        L = max(map(abs, self.radii)) * 1.5
-        self.x_threshold = L
-        self.y_threshold = L * 2
+        L1, L2 = [max(map(abs, radii)) * 1.5 for radii in self.radii.T]  # max of radii_a and radii_b times 1.5
+        self.x_threshold = L1
+        self.y_threshold = L2 * 2
 
         self.max_steps = 2000
         self.step_num = None  # how many steps passed since environment reset
@@ -84,7 +78,7 @@ class CirclesEnv(gym.Env):
         self._viewer_geom = {}
         self.is_expert = args.is_train  # draw blue circles only if expert is controlling the environment
 
-        self._init_circle()
+        self._init_ellipse()
         self.loc_history = None  # 2D array of (x, y) locations visited so far in the episode.
         self._init_loc()
 
@@ -94,16 +88,13 @@ class CirclesEnv(gym.Env):
     def state(self):
         return self.loc_history[-self.state_len:].ravel()
 
-    def _init_circle(self):
-        self.radius = np.random.choice(self.radii)
+    def _init_ellipse(self):
+        self.radius_x, self.radius_y = self.radii[np.random.randint(len(self.radii))]
 
     def _init_loc(self):
         """Initializes the first `state_len` locations when episode starts
         """
         self.loc_history = np.zeros([self.state_len, 2])
-
-    def manual_init(self, init_loc):
-        self.loc_history = init_loc
 
     def render(self, mode='human'):
         from gym.envs.classic_control import rendering
@@ -125,19 +116,20 @@ class CirclesEnv(gym.Env):
             self.viewer.add_geom(x_axis)
             self.viewer.add_geom(y_axis)
 
-            circles = []
-            for radius in self.radii:
-                radius_scaled = radius * scale
-                circle_offset = (0, radius_scaled)
-                circle_trans = rendering.Transform(translation=circle_offset)
-                circle = rendering.make_circle(radius_scaled, res=int(screen_width), filled=False)
-                circle.add_attr(coordinate_trans)
-                circle.add_attr(circle_trans)
-                circle.set_color(0.9, 0.9, 0.9)
-                self.viewer.add_geom(circle)
-                circles.append(circle)
+            ellipses = []
+            for radius_x, radius_y in self.radii:
+                radius_scaled_x, radius_scaled_y = radius_x * scale, radius_y * scale
+                ellipse_offset = (0, radius_scaled_y)
+                ellipse_trans = rendering.Transform(translation=ellipse_offset)
+                points = np.array([[radius_scaled_x * np.cos(t), radius_scaled_y * np.sin(t)] for t in np.linspace(0, 2*np.pi, 300)])
+                ellipse = rendering.make_polygon(points, filled=False)
+                ellipse.add_attr(coordinate_trans)
+                ellipse.add_attr(ellipse_trans)
+                ellipse.set_color(0.9, 0.9, 0.9)
+                self.viewer.add_geom(ellipse)
+                ellipses.append(ellipse)
 
-            self._viewer_geom['circles'] = circles
+            self._viewer_geom['ellipses'] = ellipses
 
             loc_history_scaled = self.loc_history * scale
             traj = rendering.PolyLine(loc_history_scaled, close=False)
@@ -149,12 +141,12 @@ class CirclesEnv(gym.Env):
 
         # Edit the trajectory vertices + highlight selected circle
         self._viewer_geom['traj'].v = self.loc_history * scale
-        for i, radius in enumerate(self.radii):
-            circle = self._viewer_geom['circles'][i]
-            if self.is_expert and radius == self.radius:
-                circle.set_color(0., 0., 1.)
+        for i, (radius_x, radius_y) in enumerate(self.radii):
+            ellipse = self._viewer_geom['ellipses'][i]
+            if self.is_expert and radius_x == self.radius_x and radius_y == self.radius_y:
+                ellipse.set_color(0., 0., 1.)
             else:
-                circle.set_color(0.9, 0.9, 0.9)
+                ellipse.set_color(0.9, 0.9, 0.9)
 
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 
@@ -170,20 +162,12 @@ class CirclesEnv(gym.Env):
 
         x, y = new_loc
 
-        rewards = []  # stores rewards assuming each mode
-        if len(self.radii) < 10:
-            for radius in self.radii:
-                rewards.append(self._reward(loc, new_loc, radius))
-            reward = rewards[np.where(np.array(self.radii) == self.radius)[0][0]]
-
-        else:
-            reward = None
-
         done = bool(
             x < -self.x_threshold
             or x > self.x_threshold
             or y < -self.y_threshold
             or y > self.y_threshold
+            or len(self.loc_history) > self.max_steps
             or self.step_num >= self.max_steps
         )
 
@@ -201,10 +185,10 @@ class CirclesEnv(gym.Env):
                     )
                 self.steps_beyond_done += 1
 
-        return np.array(self.state), reward, done, {'rewards': rewards}
+        return np.array(self.state), 0, done, {}
 
     def reset(self):
-        self._init_circle()
+        self._init_ellipse()
         self._init_loc()
         self.steps_beyond_done = None
         self.step_num = 0
@@ -215,16 +199,3 @@ class CirclesEnv(gym.Env):
         if self.viewer:
             self.viewer.close()
             self.viewer = None
-
-    @staticmethod
-    def _reward(old_loc, new_loc, radius):
-        x_old, y_old = old_loc
-        x_new, y_new = new_loc
-        theta, theta_old = np.arctan2(y_new - radius, x_new), np.arctan2(y_old - radius, x_old)
-        delta_theta = (theta - theta_old + np.pi) % (
-                    2 * np.pi) - np.pi  # make sure that the difference is between -pi, pi
-        delta_theta_expert = 2 * np.pi / 100
-        r = np.sqrt((y_new - radius) ** 2 + x_new ** 2)
-        return np.exp(-10 * (
-                ((delta_theta - delta_theta_expert) / delta_theta_expert) ** 2 + ((r - abs(radius)) / abs(radius)) ** 2
-        ))
