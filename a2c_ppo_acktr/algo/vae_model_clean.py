@@ -646,11 +646,6 @@ if __name__ == "__main__":
         USE_CUDA = True
 
     ############### Train ###############
-    if args.wandb:
-        wandb.init(project="VAE-BC")
-    else:
-        wandb.init(mode="disabled")
-
     # args.epochs = 30
     args.lr = 1e-4
     args.eps = 1e-5
@@ -710,11 +705,15 @@ if __name__ == "__main__":
     args.sa_dim = (27, 8)  ## 20+6
     args.data_name = "ant-dir"
     
+    if args.wandb:
+        wandb.init(project="VAE-BC", config=args)
+    else:
+        wandb.init(mode="disabled")
 
     # bc = VAE_BC(epochs=30, lr=1e-4, eps=1e-5, device="cuda:0", code_dim=None)
     # bc = VAE_BC(epochs=30, lr=1e-4, eps=1e-5, device="cuda:0", code_dim=3)
     # wandb.config.train_data_path = "/home/shared/gail_experts/trajs_halfcheetahvel.pt"
-    wandb.config = args
+    # wandb.config = args
     wandb.config.checkpoint_dir = os.path.join(
         "vae_bc_final_ckp", wandb.config.data_name
     )

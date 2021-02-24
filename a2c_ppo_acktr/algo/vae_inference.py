@@ -120,7 +120,7 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
 if __name__ == "__main__":
     # trained_model_dir = "/mnt/SSD4/tmp_exp_gail/vae_bc/final_ckp"
     device = "cuda:0"
-    args = get_args()
+    args = get_args(False)
     args.is_train = False
     args.vanilla = False
     print(args)
