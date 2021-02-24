@@ -34,10 +34,10 @@ class ExpertDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         file_name: str,
-        num_trajectories: int = None,
+        num_trajectories: Union[int, None] = None,
         subsample_frequency: int = 20,
-        modal_field: str = "radii",
         mode: str = "trajectory",
+        modal_field: Union[str, None] = None,
         one_hot: bool = True,
         one_hot_dim: int = None,
     ):
@@ -62,10 +62,13 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.actions = self.trajectories["actions"]
         num_traj_y, max_traj_len_y, dim_action = self.actions.shape
 
-        modal = self.trajectories[modal_field]
-
-        traj_codes = self._assign_codes(modal, one_hot_dim)
-        num_traj_c, = traj_codes.shape
+        self.use_code = False
+        if modal_field is not None:
+            modal = self.trajectories[modal_field]           
+            traj_codes = self._assign_codes(modal, one_hot_dim)
+            num_traj_c, = traj_codes.shape
+            self._prepare_codes(traj_codes, max_traj_len_x, one_hot)
+            self.use_code = True
 
         self.num_transitions = self.lengths.sum()
         try:
@@ -73,8 +76,6 @@ class ExpertDataset(torch.utils.data.Dataset):
             self.num_transitions = self.num_transitions.item()
         except:
             pass
-
-        self._prepare_codes(traj_codes, max_traj_len_x, one_hot)
 
         if self.mode == "transition":
             self.i2traj_idx = self._make_i2traj_idx()
@@ -94,15 +95,26 @@ class ExpertDataset(torch.utils.data.Dataset):
             return self.num_transitions
 
     def __getitem__(self, i):
-        if self.mode == "trajectory":
-            return self.states[i], self.actions[i], self.codes[i], self.lengths[i]
-        if self.mode == "transition":
-            traj_i, j = self.i2traj_idx[i, 0], self.i2traj_idx[i, 1]
-            return (
-                self.states[traj_i, j],
-                self.actions[traj_i, j],
-                self.codes[traj_i, j],
-            )
+        if self.use_code:
+            if self.mode == "trajectory":
+                return self.states[i], self.actions[i], self.codes[i], self.lengths[i]
+            if self.mode == "transition":
+                traj_i, j = self.i2traj_idx[i, 0], self.i2traj_idx[i, 1]
+                return (
+                    self.states[traj_i, j],
+                    self.actions[traj_i, j],
+                    self.codes[traj_i, j],
+                )
+        else:
+            if self.mode == "trajectory":
+                return self.states[i], self.actions[i], None, self.lengths[i]
+            if self.mode == "transition":
+                traj_i, j = self.i2traj_idx[i, 0], self.i2traj_idx[i, 1]
+                return (
+                    self.states[traj_i, j],
+                    self.actions[traj_i, j],
+                    None,
+                )
 
     def _prepare_codes(self, c: torch.Tensor, traj_len: int, one_hot: bool):
         # TODO: fake codes are useless now, either ditch them or add an option for them
@@ -126,6 +138,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                 F.one_hot(self.codes, self.code_dim),
                 F.one_hot(self.fake_code_all, self.code_dim),
             )
+        print("prepare_codes, self.codes", self.codes.shape)
 
     def _assign_codes(self, modal, one_hot_dim):
         # change to scalar encoding here in case it's useful
@@ -160,6 +173,7 @@ class ExpertDataset(torch.utils.data.Dataset):
             self.num_trajectories = num_trajectories
         perm = torch.randperm(total_trajectories)
         traj_inds = perm[:num_trajectories]
+        #print("Traj_inds", traj_inds)
         start_idx = torch.randint(
             0, subsample_frequency, size=(self.num_trajectories,)
         ).long()
@@ -172,7 +186,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                     samples.append(data[i, start_idx[i] :: subsample_frequency])
                 sample_dict[k] = torch.stack(samples)
             elif k != "lengths":
-                sample_dict[k] = v
+                sample_dict[k] = data
             else:
                 sample_dict[k] = data // subsample_frequency
         return sample_dict
@@ -323,6 +337,7 @@ class VAE_BC(nn.Module):
         input_size_state=10,
         hidden_size=128,
         kld_weight=1,
+        obsfilt=None
     ):
         super(VAE_BC, self).__init__()
         self.epochs = epochs
@@ -348,6 +363,7 @@ class VAE_BC(nn.Module):
             eps=eps,
         )
         self.kld_weight = kld_weight
+        self.obsfilt=obsfilt
 
     # def forward_GG(self, inputs, temp, hard=True):
     #     """
@@ -442,9 +458,9 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
         true_codes_list.append(to_tensor(traj_code, device))
         data_input = torch.cat([traj_state, traj_action], axis=2)
 
-        latent_code, z = net.encoder(data_input, temp, hard=hard)
-        encoded_codes_list.append(latent_code.detach())
-        latent_code_tuple = latent_code.unsqueeze(1).repeat((1, traj_state.shape[1], 1))
+        # latent_code, z = net.encoder(data_input, temp, hard=hard)
+        # encoded_codes_list.append(latent_code.detach())
+        # latent_code_tuple = latent_code.unsqueeze(1).repeat((1, traj_state.shape[1], 1))
 
         decoded_actions = net.decoder(traj_state, latent_code_tuple)
 
@@ -462,24 +478,24 @@ def validate(epoch, net, val_loader, device, best_loss, hard, checkpoint_dir):
             }
         )
 
-    true_codes, encoded_codes = (
+    true_codes, = (
         torch.cat(true_codes_list).cpu().detach().numpy().astype(int),
-        torch.cat(encoded_codes_list).argmax(dim=-1).cpu().detach().numpy(),
+        # torch.cat(encoded_codes_list).argmax(dim=-1).cpu().detach().numpy(),
     )
     radii_list = [
         str(val_loader.dataset.code_map[i]) for i in range(val_loader.dataset.code_dim)
     ]
-    print(true_codes)
-    print(encoded_codes)
-    print(radii_list)
+    # print(true_codes)
+    # print(encoded_codes)
+    # print(radii_list)
 
-    wandb.log(
-        {
-            "decode_contingency_mat": wandb.sklearn.plot_confusion_matrix(
-                true_codes, encoded_codes, radii_list
-            )
-        }
-    )
+    # wandb.log(
+    #     {
+    #         "decode_contingency_mat": wandb.sklearn.plot_confusion_matrix(
+    #             true_codes, encoded_codes, radii_list
+    #         )
+    #     }
+    # )
 
 
     latent_dim = net.encoder.output_size
@@ -635,7 +651,7 @@ if __name__ == "__main__":
     else:
         wandb.init(mode="disabled")
 
-    args.epochs = 30
+    # args.epochs = 30
     args.lr = 1e-4
     args.eps = 1e-5
     args.batch_size = 16
@@ -649,15 +665,20 @@ if __name__ == "__main__":
     ##from arash 2021-2-1, 500 traj with shape (500, 1000, 10)
     # args.train_data_path = "/mnt/SSD4/tmp_exp_gail/pytorch-a2c-ppo-acktr-gail/final_train_data/trajs_circles.pt"
     # args.train_data_path = "/home/shared/datasets/gail_experts/trajs_circles_new.pt"
-    args.train_data_path = "/home/shared/datasets/gail_experts/trajs_circles_mix.pt"
-    expert_dataset = ExpertDataset(
-        args.train_data_path, num_trajectories=500, subsample_frequency=2, one_hot=False
-    )
-    args.code_dim = 3
-    args.sa_dim = (10, 2)  ## 10 + 2
-    args.data_name = "circle"
-    """
 
+    # args.train_data_path = "/home/shared/datasets/gail_experts/trajs_circles_mix.pt"
+    # expert_dataset = ExpertDataset(
+    #     args.train_data_path,
+    #     num_trajectories=500,
+    #     modal_field="radii",
+    #     subsample_frequency=1,
+    #     one_hot=False,
+    # )
+
+    # args.code_dim = 3
+    # args.sa_dim = (10, 2)  ## 10 + 2
+    # args.data_name = "circle"
+    """
     ## -------------------Set up for cheetah vel -------------------##
     args.train_data_path = "/home/shared/gail_experts/trajs_halfcheetahvel.pt"
     expert_dataset = ExpertDataset(
@@ -679,15 +700,16 @@ if __name__ == "__main__":
     args.data_name = "cheetah-dir"
     
     ##
+    """
     ## -------------------Set up for ant dir -------------------##
-    args.train_data_path = "/home/shared/gail_experts/trajs_antdir.pt"
+    args.train_data_path = "/home/shared/gail_experts/trajs_antdir6.pt"
     expert_dataset = ExpertDataset(
-        args.train_data_path, num_trajectories=2000, subsample_frequency=4
+        args.train_data_path, num_trajectories=6000, subsample_frequency=1, modal_field="modes", one_hot=False
     )
-    args.code_dim = 2
+    args.code_dim = 6
     args.sa_dim = (27, 8)  ## 20+6
     args.data_name = "ant-dir"
-    """
+    
 
     # bc = VAE_BC(epochs=30, lr=1e-4, eps=1e-5, device="cuda:0", code_dim=None)
     # bc = VAE_BC(epochs=30, lr=1e-4, eps=1e-5, device="cuda:0", code_dim=3)

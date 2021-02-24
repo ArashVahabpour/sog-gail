@@ -86,14 +86,16 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
                 # interacting with env
                 with torch.no_grad():
                     # an extra 0'th dimension is because actor critic works with "environment vectors" (see the training code)
-                    obs = obsfilt(obs, update=False)
+                    # obs = obsfilt(obs, update=False)
                     obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)[
                         None
                     ]
-                    actions_tensor = actor_critic.select_action(
-                        obs_tensor, latent_code, True
-                    )
+                    # actions_tensor = actor_critic.select_action(
+                    #     obs_tensor, latent_code, True
+                    # )
+                    actions_tensor = actor_critic(obs_tensor, latent_code)
                     action = actions_tensor[0].cpu().numpy()
+                    # action = action / np.linalg.norm(action) * env.max_ac_mag * 0.1
                 obs, _, _, _ = env.step(action)
 
             # plotting the trajectory
@@ -134,6 +136,7 @@ if __name__ == "__main__":
     checkpoint_path = os.path.join(
         trained_model_dir, data_name, "checkpoints/bestvae_bc_model.pth"
     )
+    # checkpoint_path = "/mnt/SSD3/tianyi/pytorch-a2c-ppo-acktr-gail/checkpoints/bestbc_model_leak.pth"
 
     load_path = os.path.join(args.save_dir, args.name)
     envs = make_vec_envs(
@@ -142,6 +145,37 @@ if __name__ == "__main__":
 
     ob_rms = get_vec_normalize(envs).ob_rms
     obsfilt = get_vec_normalize(envs)._obfilt
+
+    env_ob_var = np.array(
+        [
+            103.62293212,
+            265.72141744,
+            103.6513205,
+            265.72127209,
+            103.67548928,
+            265.72123231,
+            103.696535,
+            265.72145825,
+            103.71571987,
+            265.72170916,
+        ]
+    )
+    env_ob_mean = np.array(
+        [
+            4.92447428e-03,
+            6.73194081e00,
+            3.70561400e-03,
+            6.73222692e00,
+            2.88408264e-03,
+            6.73245506e00,
+            2.48335274e-03,
+            6.73263316e00,
+            2.49720422e-03,
+            6.73279605e00,
+        ]
+    )
+    ob_rms.mean = env_ob_mean
+    ob_rms.var = env_ob_var
 
     bc = VAE_BC(
         device=device,
@@ -152,6 +186,7 @@ if __name__ == "__main__":
 
     print("before loading")
     bc.decoder.load_state_dict(torch.load(checkpoint_path)["state_dict_decoder"])
+    # bc.decoder.load_state_dict(torch.load(checkpoint_path)["state_dict"])
     policy_net = bc.decoder.to(device)
     print("done loading")
 
@@ -164,4 +199,4 @@ if __name__ == "__main__":
     MlpPolicyNet.act = act
     #######################################################################
     for epoch in range(20):
-        visualize_env(args, policy_net, obsfilt, epoch, num_steps=200)
+        visualize_env(args, policy_net, obsfilt, epoch, num_steps=1000)
