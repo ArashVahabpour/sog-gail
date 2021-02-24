@@ -17,7 +17,7 @@ from a2c_ppo_acktr.algo.behavior_clone import MlpPolicyNet
 
 from a2c_ppo_acktr.envs import VecNormalize
 from a2c_ppo_acktr.arguments import get_args
-from a2c_ppo_acktr.utils import visualize_env
+from a2c_ppo_acktr.utils import benchmark_env, visualize_env
 from a2c_ppo_acktr.envs import make_vec_envs
 from a2c_ppo_acktr.utils import get_vec_normalize, MujocoPlay, generate_latent_codes
 from a2c_ppo_acktr.algo.vae_model_clean import VAE_BC
@@ -125,20 +125,36 @@ if __name__ == "__main__":
     args.vanilla = False
     print(args)
 
-    data_name = "circle"
-    args.env_name == "Circles-v0"
-    args.sa_dim = (10, 2)
-    # data_name = "cheetah-dir"
-    # args.env_name == "cheetah-dir"
+    ## -------------------Set up for Circle --------------------##
+    # data_name = "circle"
+    # args.env_name == "Circles-v0"
+    # args.sa_dim = (10, 2)
 
+    # trained_model_dir = "vae_bc_final_ckp"
+
+    # checkpoint_path = os.path.join(
+    #     trained_model_dir, data_name, "checkpoints/bestvae_bc_model.pth"
+    # )
+    # # checkpoint_path = "/mnt/SSD3/tianyi/pytorch-a2c-ppo-acktr-gail/checkpoints/bestbc_model_leak.pth"
+    ## ---------------------------------------------------------##
+
+    ## -------------------Set up for ant-dir -------------------##
+    # data_name = "ant-dir"
+    # args.env_name == "ant-dir"
+    # args.train_data_path = "/home/shared/gail_experts/trajs_antdir.pt"
+    # expert_dataset = ExpertDataset(
+    #     args.train_data_path, num_trajectories=2000, subsample_frequency=4
+    # )
+    args.code_dim = 2
+    args.sa_dim = (27, 8)  ## 20+6
+    args.data_name = "ant-dir"
+    args.env_name = "AntDir-v0"
     trained_model_dir = "vae_bc_final_ckp"
-
     checkpoint_path = os.path.join(
-        trained_model_dir, data_name, "checkpoints/bestvae_bc_model.pth"
+        trained_model_dir, args.data_name, "checkpoints/bestvae_bc_model.pth"
     )
-    # checkpoint_path = "/mnt/SSD3/tianyi/pytorch-a2c-ppo-acktr-gail/checkpoints/bestbc_model_leak.pth"
 
-    load_path = os.path.join(args.save_dir, args.name)
+    # load_path = os.path.join(args.save_dir, args.name)
     envs = make_vec_envs(
         args.env_name, args.seed, 1, args.gamma, args.log_dir, args.device, False, args
     )
@@ -174,8 +190,10 @@ if __name__ == "__main__":
             6.73279605e00,
         ]
     )
-    ob_rms.mean = env_ob_mean
-    ob_rms.var = env_ob_var
+    # ob_rms.mean = env_ob_mean
+    # ob_rms.var = env_ob_var
+    ob_rms.mean = 0
+    ob_rms.var = 1
 
     bc = VAE_BC(
         device=device,
@@ -193,10 +211,16 @@ if __name__ == "__main__":
     ############################## Temporary ##############################
     # import ipdb
     # ipdb.set_trace()
-    def act(self, state, latent_code, deterministic=False):
-        return None, self.select_action(state, latent_code, not deterministic), None
 
-    MlpPolicyNet.act = act
+    # def act(self, state, latent_code, deterministic=False):
+    #     return None, self.select_action(state, latent_code, not deterministic), None
+
+    # MlpPolicyNet.act = act
     #######################################################################
-    for epoch in range(20):
+    num_epochs = 20
+    for epoch in range(num_epochs):
+        print(f"Epoch {epoch}/{num_epochs}")
+        print("Visualizing")
         visualize_env(args, policy_net, obsfilt, epoch, num_steps=1000)
+        print("Benchmarking")
+        benchmark_env(args, policy_net, obsfilt, epoch)
