@@ -17,8 +17,8 @@ from a2c_ppo_acktr.storage import RolloutStorage
 
 
 def main():
-    args = get_args()
-    args.is_train = True
+    args = get_args(is_train=True)
+    save_filename = args.save_filename
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -33,11 +33,6 @@ def main():
     eval_log_dir = log_dir + "_eval"
     utils.cleanup_log_dir(log_dir)
     utils.cleanup_log_dir(eval_log_dir)
-
-    save_dir = os.path.join(args.save_dir, args.name)  # directory to store network weights
-    save_filename = os.path.join(save_dir, '{}_{}.pt')
-    os.makedirs(save_dir, exist_ok=True)
-    os.makedirs(args.results_dir, exist_ok=True)
 
     expert_filename = args.expert_filename if args.expert_filename else 'trajs_{}.pt'.format(args.env_name.split('-')[0].lower())
     expert_filename = os.path.join(args.gail_experts_dir, expert_filename)
@@ -72,7 +67,7 @@ def main():
         eps=args.eps,
         max_grad_norm=args.max_grad_norm)
 
-    if args.pretrain:
+    if not args.no_pretrain:
         bc_save_filename = save_filename.format(args.env_name, 'pretrain')
         BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain(envs)
         utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
@@ -90,15 +85,12 @@ def main():
         shuffle=True,
         drop_last=drop_last)
 
-    if args.shared_code:
-        sog_train_loader = utils.single_traj_loader(expert_filename, args.gail_batch_size)
-    else:
-        sog_train_loader = torch.utils.data.DataLoader(
-            dataset=expert_dataset,
-            batch_size=args.gail_batch_size,
-            shuffle=True,
-            drop_last=drop_last)
-        sog_train_loader = cycle(sog_train_loader)
+    sog_train_loader = torch.utils.data.DataLoader(
+        dataset=expert_dataset,
+        batch_size=args.gail_batch_size,
+        shuffle=True,
+        drop_last=drop_last)
+    sog_train_loader = cycle(sog_train_loader)
 
     rollouts = RolloutStorage(args.num_steps, 1,
                               envs.observation_space.shape, envs.action_space,
@@ -117,11 +109,10 @@ def main():
     num_updates = int(args.num_env_steps) // args.num_steps
     for j in tqdm(range(num_updates)):
 
-        if args.use_linear_lr_decay:
-            # decrease learning rate linearly
-            utils.update_linear_schedule(
-                agent.optimizer, j, num_updates,
-                args.lr)
+        # decrease learning rate linearly
+        utils.update_linear_schedule(
+            agent.optimizer, j, num_updates,
+            args.lr)
 
         ### sample trajectories
         for step in range(args.num_steps):
@@ -177,8 +168,7 @@ def main():
                     rollouts.obs[step], rollouts.latent_codes[step], rollouts.actions[step],
                     args.gamma, rollouts.masks[step])
 
-        rollouts.compute_returns(next_value, args.use_gae, args.gamma,
-                                 args.gae_lambda, args.use_proper_time_limits)
+        rollouts.compute_returns(next_value, args.gamma, args.gae_lambda)
 
         value_loss, action_loss, dist_entropy, sog_loss = agent.update(
             rollouts, sog_train_loader, obsfilt)

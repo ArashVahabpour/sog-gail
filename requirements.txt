@@ -1,5 +1,8 @@
+pandas
+PyYAML
 tqdm
 numpy
 gym
 matplotlib
 pybullet
+tmuxp

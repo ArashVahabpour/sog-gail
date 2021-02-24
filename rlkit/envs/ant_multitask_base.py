@@ -6,8 +6,8 @@ from rlkit.envs.ant import AntEnv
 class MultitaskAntEnv(AntEnv):
     def __init__(self, task={}, n_tasks=2, **kwargs):
         self._task = task
-        self.tasks = self.sample_tasks(n_tasks)
-        self._goal = self.tasks[0]['goal']
+        self.tasks = np.linspace(0, 2*np.pi, n_tasks + 1)[:-1]  # self.sample_tasks(n_tasks)
+        # self._goal = self.tasks[0]['goal']
         super(MultitaskAntEnv, self).__init__(**kwargs)
 
     """
@@ -34,5 +34,5 @@ class MultitaskAntEnv(AntEnv):
 
     def reset_task(self, idx):
         self._task = self.tasks[idx]
-        self._goal = self._task['goal'] # assume parameterization of task by single vector
+        # self._goal = self._task['goal'] # assume parameterization of task by single vector
         self.reset()

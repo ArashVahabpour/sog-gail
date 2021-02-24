@@ -32,6 +32,7 @@ class AntGoalEnv(MultitaskAntEnv):
             reward_ctrl=-ctrl_cost,
             reward_contact=-contact_cost,
             reward_survive=survive_reward,
+            xpos=np.array(self.get_body_com("torso"))[:2]
         )
 
     def sample_tasks(self, num_tasks):

@@ -47,7 +47,7 @@ class HalfCheetahVelEnv(HalfCheetahEnv):
         reward = forward_reward - ctrl_cost
         done = self.step_num >= self.max_steps
         infos = dict(reward_forward=forward_reward,
-            reward_ctrl=-ctrl_cost, task=self._task)
+            reward_ctrl=-ctrl_cost, task=self._task, forward_vel=forward_vel)
         return (observation, reward, done, infos)
 
     def sample_tasks(self, num_tasks):

@@ -4,7 +4,7 @@ import os
 import numpy as np
 
 
-def get_args():
+def get_args(is_train):
     parser = argparse.ArgumentParser(description='RL')
 
     # checkpoint
@@ -29,7 +29,6 @@ def get_args():
         type=int,
         default=100,
         help='number of behavioral cloning epochs (default: 100)')
-
     # gail / ppo
     parser.add_argument(
         '--gail-experts-dir',
@@ -48,7 +47,7 @@ def get_args():
     parser.add_argument(
         '--gail-epoch', type=int, default=5, help='gail epochs (default: 5)')
     parser.add_argument(
-        '--lr', type=float, default=7e-4, help='learning rate (default: 7e-4)')
+        '--lr', type=float, default=3e-4, help='learning rate (default: 7e-4)')
     parser.add_argument(
         '--eps',
         type=float,
@@ -64,11 +63,11 @@ def get_args():
         type=float,
         default=0.99,
         help='discount factor for rewards (default: 0.99)')
-    parser.add_argument(
-        '--use-gae',
-        action='store_true',
-        default=False,
-        help='use generalized advantage estimation')
+    # parser.add_argument(
+    #     '--use-gae',
+    #     action='store_true',
+    #     default=False,
+    #     help='use generalized advantage estimation')
     parser.add_argument(
         '--gae-lambda',
         type=float,
@@ -77,7 +76,7 @@ def get_args():
     parser.add_argument(
         '--entropy-coef',
         type=float,
-        default=0.01,
+        default=0,
         help='entropy term coefficient (default: 0.01)')
     parser.add_argument(
         '--value-loss-coef',
@@ -99,12 +98,12 @@ def get_args():
     parser.add_argument(
         '--num-steps',
         type=int,
-        default=5,
+        default=2048,
         help='number of forward steps in A2C (default: 5)')
     parser.add_argument(
         '--ppo-epoch',
         type=int,
-        default=4,
+        default=10,
         help='number of ppo epochs (default: 4)')
     parser.add_argument(
         '--num-mini-batch',
@@ -119,12 +118,12 @@ def get_args():
     parser.add_argument(
         '--log-interval',
         type=int,
-        default=10,
+        default=1,
         help='log interval, one log per n updates (default: 10)')
     parser.add_argument(
         '--save-interval',
         type=int,
-        default=100,
+        default=5,
         help='save interval, one save per n updates (default: 100)')
     parser.add_argument(
         '--eval-interval',
@@ -139,7 +138,7 @@ def get_args():
     parser.add_argument(
         '--num-env-steps',
         type=int,
-        default=10e6,
+        default=10000000,
         help='number of environment steps to train (default: 10e6)')
     parser.add_argument(
         '--log-dir',
@@ -164,16 +163,16 @@ def get_args():
         default=0,
         help='gpu id to use'
     )
-    parser.add_argument(
-        '--use-proper-time-limits',
-        action='store_true',
-        default=False,
-        help='compute returns taking into account time limits')
-    parser.add_argument(
-        '--use-linear-lr-decay',
-        action='store_true',
-        default=False,
-        help='use a linear schedule on the learning rate')
+    # parser.add_argument(
+    #     '--use-proper-time-limits',
+    #     action='store_true',
+    #     default=False,
+    #     help='compute returns taking into account time limits')
+    # parser.add_argument(
+    #     '--use-linear-lr-decay',
+    #     action='store_true',
+    #     default=False,
+    #     help='use a linear schedule on the learning rate')
 
     # network architecture
     parser.add_argument(
@@ -181,11 +180,6 @@ def get_args():
         action='store_true',
         default=False,
         help='add a non-linearity to the final layer of generator, giving some boost in performance in sog-gail')
-    parser.add_argument(
-        '--wasserstein',
-        action='store_true',
-        default=False,
-        help='use wasserstein loss for discriminator as advised by infogail paper')
 
     # infogail
     parser.add_argument(
@@ -194,10 +188,10 @@ def get_args():
         default=3,
         help='dim of latent codes')
     parser.add_argument(
-        '--pretrain',
+        '--no-pretrain',
         action='store_true',
         default=False,
-        help='pretrain the generator with behavioral cloning before training')
+        help='no pretraining of the generator with behavioral cloning')
     parser.add_argument(
         '--infogail',
         action='store_true',
@@ -223,13 +217,8 @@ def get_args():
     parser.add_argument(
         '--sog-gail-coef',
         type=float,
-        default=0.01,
+        default=0.1,
         help='sog-gail term coefficient (default: 0.01)')
-    parser.add_argument(
-        '--shared-code',
-        action='store_true',
-        default=False,
-        help='solve for a "shared" latent code for expert trajectories, in sog-gail model')
     parser.add_argument(
         '--block-size',
         type=int,
@@ -269,13 +258,15 @@ def get_args():
 
     args = parser.parse_args()
 
+    args.is_train = is_train
+
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.cuda:
         torch.cuda.set_device(args.gpu_id)
     args.device = torch.device('cuda' if args.cuda else 'cpu')
     args.results_dir = os.path.join(args.results_root, args.env_name.split('-')[0].lower(), args.name)
 
-    if args.env_name == 'Circles-v0':
+    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
         args.radii = eval(args.radii)
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
@@ -289,9 +280,19 @@ def get_args():
             args.latent_batch_size = args.samples_per_dim ** args.block_size
         else:
             args.latent_batch_size = args.latent_dim
-    # args.adjust_scale |= args.sog_gail
-    # args.wasserstein |= args.infogail
 
     # TODO Arash: separate away train/test options
+    save_dir = os.path.join(args.save_dir, args.env_name.split('-')[0].lower(), args.name)  # directory to store network weights
+    args.save_filename = os.path.join(save_dir, '{}_{}.pt')
+    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(args.results_dir, exist_ok=True)
+
+    if is_train:
+        args_filename = os.path.join(save_dir, 'args.txt')
+        with open(args_filename, 'wt') as args_file:
+            args_file.write('------------ Arguments -------------\n')
+            for k, v in sorted(vars(args).items()):
+                args_file.write('%s: %s\n' % (str(k), str(v)))
+            args_file.write('-------------- End ----------------\n')
 
     return args

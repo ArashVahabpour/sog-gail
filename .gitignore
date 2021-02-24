@@ -11,3 +11,4 @@ results/
 /mujoco-py/
 /.vscode/
 *.png
+run_all.yaml
