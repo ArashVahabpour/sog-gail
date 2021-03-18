@@ -10,6 +10,7 @@ import torch
 from a2c_ppo_acktr import algo, utils
 from a2c_ppo_acktr.algo import gail
 from a2c_ppo_acktr.algo.bc import BC
+from a2c_ppo_acktr.algo.vae import VAE
 from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.envs import make_vec_envs
 from a2c_ppo_acktr.model import Policy
@@ -18,7 +19,6 @@ from a2c_ppo_acktr.storage import RolloutStorage
 
 def main():
     args = get_args(is_train=True)
-    save_filename = args.save_filename
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -53,7 +53,6 @@ def main():
         args)
     actor_critic.to(device)
 
-
     gail_input_dim = envs.observation_space.shape[0] + envs.action_space.shape[0]
     if args.infogail:
         posterior = gail.Posterior(gail_input_dim, 128, args)
@@ -67,8 +66,21 @@ def main():
         eps=args.eps,
         max_grad_norm=args.max_grad_norm)
 
+    bc_save_filename, vae_save_filename = [args.save_filename.format(s) for s in ('pretrain', 'vae_modes')]
+
+    if args.vae_gail:
+        if args.CHEAT:
+            vae_modes = [torch.load('/tmp/CIRCLE_MODES.pt', map_location=device),] * 2
+        elif os.path.exists(vae_save_filename):
+            vae_modes = torch.load(vae_save_filename, map_location=device)
+        else:
+            vae = VAE(args, expert_filename).to(device)
+            vae_modes = vae.recover_modes()
+            torch.save(vae_modes, vae_save_filename)
+    else:
+        vae_modes = None
+
     if not args.no_pretrain:
-        bc_save_filename = save_filename.format(args.env_name, 'pretrain')
         BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain(envs)
         utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
 
@@ -160,7 +172,10 @@ def main():
         for step in range(args.num_steps):
             # discriminator reward
             rollouts.rewards[step] = discr.predict_reward(
-                rollouts.obs[step], rollouts.actions[step], args.gamma, rollouts.masks[step])
+                rollouts.obs[step],
+                rollouts.actions[step],
+                args.gamma,
+                rollouts.masks[step])
 
             # infogail reward
             if args.infogail:
@@ -184,7 +199,7 @@ def main():
                     discr,
                     posterior if args.infogail else None,
                     getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
-                ], save_filename.format(args.env_name, epoch))
+                ], args.save_filename.format(epoch))
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_steps

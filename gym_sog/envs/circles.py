@@ -225,6 +225,4 @@ class CirclesEnv(gym.Env):
                     2 * np.pi) - np.pi  # make sure that the difference is between -pi, pi
         delta_theta_expert = 2 * np.pi / 100
         r = np.sqrt((y_new - radius) ** 2 + x_new ** 2)
-        return np.exp(-10 * (
-                ((delta_theta - delta_theta_expert) / delta_theta_expert) ** 2 + ((r - abs(radius)) / abs(radius)) ** 2
-        ))
+        return np.exp(-10 * ((r - abs(radius)) / abs(radius)) ** 2)

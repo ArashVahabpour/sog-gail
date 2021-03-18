@@ -7,7 +7,8 @@ import gym
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
-from itertools import product
+from itertools import product, permutations
+import h5py
 
 from a2c_ppo_acktr.envs import VecNormalize
 
@@ -77,10 +78,13 @@ def cleanup_log_dir(log_dir):
 def generate_latent_codes(args, count=1):
     """
     Returns:
-        a random row-wise-one-hot tensor of shape `count x latent_dim`
+        a random tensor of shape `count x latent_dim`, which is row-wise-one-hot if latent codes are discrete, or Gaussian if continuous
     """
     n = args.latent_dim
-    return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
+    if args.continuous:
+        return torch.randn((count, n), device=args.device)
+    else:
+        return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
 
 
 class MujocoBase:
@@ -197,7 +201,7 @@ class MujocoBenchmark(MujocoBase):
         vel_mean, vel_std = np.array(vel_mean), np.array(vel_std)
         plt.figure()
         plt.plot(cdf, vel_mean, marker='o', color='r')
-        plt.fill_between(cdf, vel_mean-vel_std, vel_mean+vel_std)
+        plt.fill_between(cdf, vel_mean-vel_std, vel_mean+vel_std, alpha=0.2)
         plt.savefig(os.path.join(args.results_dir, f'{epoch}.png'))
         plt.close()
 
@@ -210,8 +214,7 @@ class MujocoBenchmark(MujocoBase):
         args = self.args
         plt.figure()
 
-        continuous = args.sog_gail and args.latent_optimizer == 'bcs'
-        if continuous:
+        if args.continuous:
             assert args.latent_dim == 1, 'higher latent dim not implemented'
             num_codes = 30
             num_repeats = 1
@@ -393,8 +396,12 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
         obs = env.reset()
 
         device = next(actor_critic.parameters()).device
+        if args.continuous:
+            latent_codes = torch.randn(5, args.latent_dim, device=device)
+        else:
+            latent_codes = torch.eye(args.latent_dim, device=device)
         # generate rollouts and plot them
-        for j, latent_code in enumerate(torch.eye(args.latent_dim, device=device)):
+        for j, latent_code in enumerate(latent_codes):
             latent_code = latent_code.unsqueeze(0)
 
             for i in range(num_steps):
@@ -467,7 +474,7 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
     else:
         raise NotImplementedError
 
-#
+
 # def plot_ant_expert(states, args):
 #     plt.figure(figsize=(20, 20))
 #     for i, traj in enumerate(states):
@@ -476,6 +483,21 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
 #     plt.plot([0], [0], marker='o', markersize=3, color='k')
 #     plt.savefig(os.path.join(args.results_dir, 'expert.png'))
 #     plt.close()
+
+
+def record_rewards(h5, args, group, rew_mean, rew_std):
+    """Records rewards according to best correspondence of latent codes and actual modes."""
+    max_reward, best_mean, best_std = -np.inf, None, None
+    for perm_mean, perm_std in zip(permutations(rew_mean), permutations(rew_std)):
+        tmp = np.array(perm_mean).trace()
+        if tmp > max_reward:
+            max_reward = tmp
+            best_mean = perm_mean
+            best_std = perm_std
+    if group in h5:
+        del h5[group]
+    h5.create_group(group)
+    h5[group]['mean'], h5[group]['std'] = np.diag(np.array(best_mean)), np.diag(np.array(best_std))
 
 
 def benchmark_env(args, actor_critic, obsfilt, epoch):
@@ -505,19 +527,13 @@ def benchmark_env(args, actor_critic, obsfilt, epoch):
     elif args.env_name == 'Circles-v0':
         import gym_sog
         env = gym.make(args.env_name, args=args)
+        h5 = h5py.File(os.path.join(args.results_dir, 'rewards.h5'), 'a')
         circles_bench = CirclesBenchmark(args, env, actor_critic, filename, obsfilt)
-        rew_mean, rew_std = circles_bench.collect_rewards()
-        expert_rew_mean, expert_rew_std = circles_bench.collect_rewards(use_expert=True)
-        print(f"""
-        policy: 
-        {rew_mean} 
-        +/- 
-        {rew_std}
-        
-        expert: 
-        {expert_rew_mean} 
-        +/- 
-        {expert_rew_std}
-        """)
+        assert args.latent_dim <= 5, 'all permutations of too many latent codes is prohibitively costly'
+
+        record_rewards(h5, args, str(epoch), *circles_bench.collect_rewards(False))
+        if 'expert' not in h5:
+            record_rewards(h5, args, 'expert', *circles_bench.collect_rewards(True))
+
     else:
         raise NotImplementedError

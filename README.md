@@ -36,3 +36,6 @@ TODO: review the installation requirements above
 1. Modify `jobs.xlsx`
 2. Generate jobs as desired, e.g. ```python generate_tmux_yaml.py --num-seeds 4 --job-ids 0,1 --task 'benchmark'```
 3. Run the jobs: ```tmuxp load run_all.yaml```
+---
+### TODO
+- the extra `DiagGaussian` + the `CirclesMLP` module to be moved out of the main code base

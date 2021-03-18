@@ -180,18 +180,23 @@ def get_args(is_train):
         action='store_true',
         default=False,
         help='add a non-linearity to the final layer of generator, giving some boost in performance in sog-gail')
-
-    # infogail
     parser.add_argument(
         '--latent-dim',
         type=int,
         default=3,
         help='dim of latent codes')
     parser.add_argument(
+        '--continuous',
+        action='store_true',
+        default=False,
+        help='whether the latent code is continuous')
+    parser.add_argument(
         '--no-pretrain',
         action='store_true',
         default=False,
         help='no pretraining of the generator with behavioral cloning')
+
+    # infogail
     parser.add_argument(
         '--infogail',
         action='store_true',
@@ -240,6 +245,33 @@ def get_args(is_train):
         default='ohs',
         help='method to find best latent code: e.g. "bcs" for block coorindate search, or "ohs" for one-hot-search.')
 
+    # vae-gail
+    parser.add_argument(
+        '--vae-gail',
+        action='store_true',
+        default=False,
+        help='use vae-gail model: "Robust Imitation of Diverse Behaviors"')
+    parser.add_argument(
+        '--lstm-batch-size',
+        type=int,
+        default=64,
+        help='lstm training batch size (default: 64)')
+    parser.add_argument(
+        '--hidden-dim-lstm',
+        type=int,
+        default=64,
+        help='lstm hidden dim')
+    parser.add_argument(
+        '--hidden-dim-decoder',
+        type=int,
+        default=300,
+        help='decoder hidden dim')
+    parser.add_argument(
+        '--vae-epochs',
+        type=int,
+        default=5,
+        help='number of vae epochs (default: 5)')
+
     # custom envs
     parser.add_argument(
         '--env-name',
@@ -257,7 +289,6 @@ def get_args(is_train):
         help='indicates using of a mujoco env')
 
     args = parser.parse_args()
-
     args.is_train = is_train
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -271,9 +302,8 @@ def get_args(is_train):
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
 
-    args.vanilla = not (args.infogail or args.sog_gail)
-    if args.infogail and args.sog_gail:
-        raise ValueError('cannot raise --infogail and --sog-gail flags concurrently.')
+    args.vanilla = not (args.infogail or args.sog_gail or args.vae_gail)
+    assert sum([args.infogail, args.sog_gail, args.vae_gail]) <= 1, 'at most one model flag could be active'
     if args.sog_gail:
         if args.latent_optimizer == 'bcs':
             assert args.latent_dim % args.block_size == 0, 'latent_dim must be divisible by block_size'
@@ -281,9 +311,11 @@ def get_args(is_train):
         else:
             args.latent_batch_size = args.latent_dim
 
+    args.continuous |= (args.sog_gail and args.latent_optimizer == 'bcs') or args.vae_gail
+
     # TODO Arash: separate away train/test options
     save_dir = os.path.join(args.save_dir, args.env_name.split('-')[0].lower(), args.name)  # directory to store network weights
-    args.save_filename = os.path.join(save_dir, '{}_{}.pt')
+    args.save_filename = os.path.join(save_dir, args.env_name + '_{}.pt')
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(args.results_dir, exist_ok=True)
 

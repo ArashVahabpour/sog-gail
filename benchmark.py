@@ -12,7 +12,7 @@ args = get_args(is_train=False)
 
 for epoch in range(0, int(args.num_env_steps) // args.num_steps, args.save_interval):
     print(epoch)
-    load_path = os.path.join(args.save_filename.format(args.env_name, epoch))
+    load_path = os.path.join(args.save_filename.format(epoch))
     envs = make_vec_envs(args.env_name, args.seed, 1,
                          args.gamma, args.log_dir, args.device, False, args)
     ob_rms = get_vec_normalize(envs).ob_rms
@@ -25,9 +25,3 @@ for epoch in range(0, int(args.num_env_steps) // args.num_steps, args.save_inter
 
     # generate a rollout and visualize
     benchmark_env(args, actor_critic, obfilt, epoch)
-
-# if args.env_name == 'AntGoal-v0':
-#     # plot expert trajs
-#     expert_filename = './gail_experts/trajs_antgoal_5.pt'
-#     states = torch.load(expert_filename)['states']
-#     plot_ant_expert(states, args)

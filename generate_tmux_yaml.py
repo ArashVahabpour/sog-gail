@@ -35,13 +35,13 @@ parser.add_argument(
     default=4,
     help='number of random seeds to generate')
 parser.add_argument(
-    '--job-ids',
+    '--jobs',
     default=None,
     help='job rows in the spreadsheet, e.g. "0-2,4-9,11" . note that indices should begin from 0.')
 args = parser.parse_args()
 
-assert args.job_ids, 'you must enter job indexes using --job-ids'
-job_idxs = range_expand(args.job_ids)
+assert args.jobs, 'you must enter job indexes using --job-ids'
+jobs = range_expand(args.jobs)
 num_seeds = args.num_seeds if args.task == 'train' else 1
 
 config = {"session_name": "run-all", "windows": []}
@@ -49,9 +49,9 @@ ex = pd.read_excel('jobs.xlsx')
 
 for i in range(num_seeds):
     panes_list = []
-    for job_idx in job_idxs:
-        job_args = ex.iloc[job_idx, :]
-        bool_keys = ['mujoco', 'infogail', 'sog-gail', 'adjust-scale']
+    for job in jobs:
+        job_args = ex.iloc[job, :]
+        bool_keys = ['mujoco', 'vae-gail', 'infogail', 'sog-gail', 'adjust-scale', 'continuous']
         var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id']
 
         def template(key):
