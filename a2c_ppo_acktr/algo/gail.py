@@ -16,6 +16,8 @@ class Discriminator(nn.Module):
         self.args = args
         self.device = args.device
 
+        if args.vae_gail:
+            input_dim += args.latent_dim
         self.trunk = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
@@ -29,15 +31,10 @@ class Discriminator(nn.Module):
         self.ret_rms = RunningMeanStd(shape=())
 
     def compute_grad_pen(self,
-                         expert_state,
-                         expert_action,
-                         policy_state,
-                         policy_action,
+                         expert_data,
+                         policy_data,
                          lambda_=10):
-        alpha = torch.rand(expert_state.size(0), 1)
-        expert_data = torch.cat([expert_state, expert_action], dim=1)
-        policy_data = torch.cat([policy_state, policy_action], dim=1)
-
+        alpha = torch.rand(expert_data.size(0), 1)
         alpha = alpha.expand_as(expert_data).to(expert_data.device)
 
         mixup_data = alpha * expert_data + (1 - alpha) * policy_data
@@ -56,7 +53,7 @@ class Discriminator(nn.Module):
         grad_pen = lambda_ * (grad.norm(2, dim=1) - 1).pow(2).mean()
         return grad_pen
 
-    def update(self, expert_loader, rollouts, obsfilt=None):
+    def update(self, expert_loader, rollouts,  obsfilt=None, writer=None, i=0):
         self.train()
 
         policy_data_generator = rollouts.feed_forward_generator(
@@ -66,16 +63,21 @@ class Discriminator(nn.Module):
         n = 0
         for expert_batch, policy_batch in zip(expert_loader,
                                               policy_data_generator):
-            policy_state, policy_latent_codes, policy_action = policy_batch[:3]
-            policy_d = self.trunk(
-                torch.cat([policy_state, policy_action], dim=1))
+            policy_state, policy_latent_code, policy_action = policy_batch[:3]
+            policy_d_input = torch.cat([policy_state, policy_action], dim=1)
+            if self.args.vae_gail:
+                policy_d_input = torch.cat([policy_d_input, policy_latent_code], dim=1)
+            policy_d = self.trunk(policy_d_input)
 
-            expert_state, expert_action = expert_batch
+            expert_state, expert_action = expert_batch[:2]
             expert_state = obsfilt(expert_state.numpy(), update=False)
             expert_state = torch.FloatTensor(expert_state).to(self.device)
             expert_action = expert_action.to(self.device)
-            expert_d = self.trunk(
-                torch.cat([expert_state, expert_action], dim=1))
+            expert_d_input = torch.cat([expert_state, expert_action], dim=1)
+            if self.args.vae_gail:
+                expert_latent_code = expert_batch[2]
+                expert_d_input = torch.cat([expert_d_input, expert_latent_code], dim=1)
+            expert_d = self.trunk(expert_d_input)
 
             expert_loss = F.binary_cross_entropy_with_logits(
                 expert_d,
@@ -85,8 +87,16 @@ class Discriminator(nn.Module):
                 torch.zeros(policy_d.size()).to(self.device))
 
             gail_loss = expert_loss + policy_loss
-            grad_pen = self.compute_grad_pen(expert_state, expert_action,
-                                             policy_state, policy_action)
+            grad_pen = self.compute_grad_pen(expert_d_input, policy_d_input)
+
+            writer.add_scalar("Loss/gail", gail_loss, i)
+            writer.add_scalar("Loss/grad_pen", grad_pen, i)
+            writer.add_scalar("norm/expert/state",  torch.norm(expert_state[0]), i)
+            writer.add_scalar("norm/expert/action", torch.norm(expert_action[0]), i)
+            writer.add_scalar("norm/expert/latent", torch.norm(expert_latent_code[0]), i)
+            writer.add_scalar("norm/policy/state",  torch.norm(policy_state[0]), i)
+            writer.add_scalar("norm/policy/action", torch.norm(policy_action[0]), i)
+            writer.add_scalar("norm/policy/latent", torch.norm(policy_latent_code[0]), i)
 
             loss += (gail_loss + grad_pen).item()
             n += 1
@@ -97,19 +107,28 @@ class Discriminator(nn.Module):
 
         return loss / n
 
-    def predict_reward(self, state, action, gamma, masks, update_rms=True):
+    def predict_reward(self, state, action, latent_code, gamma, masks, writer, i):
         with torch.no_grad():
             self.eval()
-            d = self.trunk(torch.cat([state, action], dim=1))
+            if latent_code is None:
+                d = self.trunk(torch.cat([state, action], dim=1))
+            else:
+                d = self.trunk(torch.cat([state, action, latent_code], dim=1))
+
+                writer.add_scalar("norm/policy_at_reward/state", torch.norm(state[0]), i)
+                writer.add_scalar("norm/policy_at_reward/action", torch.norm(action[0]), i)
+                writer.add_scalar("norm/policy_at_reward/latent", torch.norm(latent_code[0]), i)
+
             s = torch.sigmoid(d)
+
             reward = s.log() - (1 - s).log()
+            writer.add_scalar("Reward (+/- 4.6 is bad)", reward, i)
 
             if self.returns is None:
                 self.returns = reward.clone()
 
-            if update_rms:
-                self.returns = self.returns * masks * gamma + reward
-                self.ret_rms.update(self.returns.cpu().numpy())
+            self.returns = self.returns * masks * gamma + reward
+            self.ret_rms.update(self.returns.cpu().numpy())
 
             return reward / np.sqrt(self.ret_rms.var[0] + 1e-8)
 
@@ -190,7 +209,7 @@ class Posterior(nn.Module):
 
 
 class ExpertDataset(torch.utils.data.Dataset):
-    def __init__(self, file_name, num_trajectories=4, subsample_frequency=20):
+    def __init__(self, file_name, num_trajectories=4, subsample_frequency=20, vae_modes=None):
         all_trajectories = torch.load(file_name)
         num_all_trajectories = all_trajectories['states'].size(0)
 
@@ -220,6 +239,9 @@ class ExpertDataset(torch.utils.data.Dataset):
             else:  # e.g. radii for Circles-v0 environment
                 self.trajectories[k] = data
 
+        if vae_modes is not None:
+            self.trajectories['vae_modes'] = vae_modes[idx]
+
         self.i2traj_idx = {}
         self.i2i = {}
         
@@ -245,6 +267,9 @@ class ExpertDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, i):
         traj_idx, i = self.get_idx[i]
+        data = [self.trajectories['states'][traj_idx][i], self.trajectories['actions'][traj_idx][i]]
+        vae_modes = self.trajectories.get('vae_modes', None)
+        if vae_modes is not None:
+            data.append(vae_modes[traj_idx])
 
-        return self.trajectories['states'][traj_idx][i], self.trajectories[
-            'actions'][traj_idx][i]
+        return data

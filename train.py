@@ -33,7 +33,6 @@ def main():
     eval_log_dir = log_dir + "_eval"
     utils.cleanup_log_dir(log_dir)
     utils.cleanup_log_dir(eval_log_dir)
-
     expert_filename = args.expert_filename if args.expert_filename else 'trajs_{}.pt'.format(args.env_name.split('-')[0].lower())
     expert_filename = os.path.join(args.gail_experts_dir, expert_filename)
 
@@ -69,9 +68,7 @@ def main():
     bc_save_filename, vae_save_filename = [args.save_filename.format(s) for s in ('pretrain', 'vae_modes')]
 
     if args.vae_gail:
-        if args.CHEAT:
-            vae_modes = [torch.load('/tmp/CIRCLE_MODES.pt', map_location=device),] * 2
-        elif os.path.exists(vae_save_filename):
+        if os.path.exists(vae_save_filename):
             vae_modes = torch.load(vae_save_filename, map_location=device)
         else:
             vae = VAE(args, expert_filename).to(device)
@@ -81,7 +78,7 @@ def main():
         vae_modes = None
 
     if not args.no_pretrain:
-        BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain(envs)
+        BC(agent, bc_save_filename, expert_filename, args, obsfilt, vae_modes).pretrain(envs)
         utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
 
     if len(envs.observation_space.shape) != 1:
@@ -89,7 +86,11 @@ def main():
 
     discr = gail.Discriminator(gail_input_dim, 128, args)
 
-    expert_dataset = gail.ExpertDataset(expert_filename, num_trajectories=None, subsample_frequency=20)
+    from torch.utils.tensorboard import SummaryWriter
+    from datetime import datetime
+    writer = SummaryWriter(f'/mnt/SSD3/arash/runs/{datetime.now()}')
+
+    expert_dataset = gail.ExpertDataset(expert_filename, num_trajectories=None, subsample_frequency=20, vae_modes=vae_modes)
     drop_last = len(expert_dataset) > args.gail_batch_size
     gail_train_loader = torch.utils.data.DataLoader(
         dataset=expert_dataset,
@@ -120,7 +121,7 @@ def main():
     start = time.time()
     num_updates = int(args.num_env_steps) // args.num_steps
     for j in tqdm(range(num_updates)):
-
+        writer.flush()
         # decrease learning rate linearly
         utils.update_linear_schedule(
             agent.optimizer, j, num_updates,
@@ -130,7 +131,7 @@ def main():
         for step in range(args.num_steps):
             # Update latent code
             if args.vanilla or done[0]:
-                latent_code = utils.generate_latent_codes(args, 1)
+                latent_code = utils.generate_latent_codes(args, 1, vae_modes)
 
             # Sample actions
             with torch.no_grad():
@@ -162,7 +163,7 @@ def main():
         if j < 10:
             gail_epoch = 100  # Warm up
         for _ in range(gail_epoch):
-            discr.update(gail_train_loader, rollouts, obsfilt)
+            discr.update(gail_train_loader, rollouts, obsfilt, writer, j)
 
         ### update posterior
         if args.infogail:
@@ -174,8 +175,10 @@ def main():
             rollouts.rewards[step] = discr.predict_reward(
                 rollouts.obs[step],
                 rollouts.actions[step],
+                rollouts.latent_codes[step] if args.vae_gail else None,
                 args.gamma,
-                rollouts.masks[step])
+                rollouts.masks[step],
+                writer, j)
 
             # infogail reward
             if args.infogail:
@@ -185,8 +188,7 @@ def main():
 
         rollouts.compute_returns(next_value, args.gamma, args.gae_lambda)
 
-        value_loss, action_loss, dist_entropy, sog_loss = agent.update(
-            rollouts, sog_train_loader, obsfilt)
+        value_loss, action_loss, dist_entropy, sog_loss = agent.update(rollouts, sog_train_loader, obsfilt)
 
         rollouts.after_update()
 

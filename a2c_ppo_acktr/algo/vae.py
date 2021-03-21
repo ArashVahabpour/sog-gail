@@ -112,4 +112,7 @@ class VAE(nn.Module):
             _, mu, _ = self.forward(s, [])
             mus.append(mu.detach())
         # num_traj x latent_dim
-        return torch.cat(mus)
+        mus = torch.cat(mus)
+        mus = (mus - mus.mean()) / mus.std()
+
+        return mus

@@ -75,13 +75,17 @@ def cleanup_log_dir(log_dir):
             os.remove(f)
 
 
-def generate_latent_codes(args, count=1):
+def generate_latent_codes(args, count=1, vae_modes=None):
     """
     Returns:
         a random tensor of shape `count x latent_dim`, which is row-wise-one-hot if latent codes are discrete, or Gaussian if continuous
     """
     n = args.latent_dim
-    if args.continuous:
+    if args.vae_gail:
+        perm = torch.randperm(vae_modes.size(0))
+        idx = perm[:count]
+        return vae_modes[idx]
+    elif args.continuous:
         return torch.randn((count, n), device=args.device)
     else:
         return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
@@ -396,7 +400,12 @@ def visualize_env(args, actor_critic, obsfilt, epoch, num_steps=1000):
         obs = env.reset()
 
         device = next(actor_critic.parameters()).device
-        if args.continuous:
+        if args.vae_gail:
+            vae_modes = torch.load(args.save_filename.format('vae_modes'), map_location='cpu').numpy()
+            from sklearn.cluster import KMeans
+            latent_codes = KMeans(n_clusters=3).fit(vae_modes).cluster_centers_
+            latent_codes = torch.tensor(latent_codes, dtype=torch.float32, device=args.device)
+        elif args.continuous:
             latent_codes = torch.randn(5, args.latent_dim, device=device)
         else:
             latent_codes = torch.eye(args.latent_dim, device=device)
