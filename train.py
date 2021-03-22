@@ -65,30 +65,26 @@ def main():
         eps=args.eps,
         max_grad_norm=args.max_grad_norm)
 
-    bc_save_filename, vae_save_filename = [args.save_filename.format(s) for s in ('pretrain', 'vae_modes')]
+    bc_filename, vae_filename = [args.save_filename.format(s) for s in ('pretrain', 'vae_modes')]
 
     if args.vae_gail:
-        if os.path.exists(vae_save_filename):
-            vae_modes = torch.load(vae_save_filename, map_location=device)
+        if os.path.exists(vae_filename):
+            vae_modes = torch.load(vae_filename, map_location=device)
         else:
             vae = VAE(args, expert_filename).to(device)
             vae_modes = vae.recover_modes()
-            torch.save(vae_modes, vae_save_filename)
+            torch.save(vae_modes, vae_filename)
     else:
         vae_modes = None
 
     if not args.no_pretrain:
-        BC(agent, bc_save_filename, expert_filename, args, obsfilt, vae_modes).pretrain(envs)
+        BC(agent, bc_filename, expert_filename, args, obsfilt, vae_modes).pretrain(envs)
         utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
 
     if len(envs.observation_space.shape) != 1:
         raise NotImplementedError
 
     discr = gail.Discriminator(gail_input_dim, 128, args)
-
-    from torch.utils.tensorboard import SummaryWriter
-    from datetime import datetime
-    writer = SummaryWriter(f'/mnt/SSD3/arash/runs/{datetime.now()}')
 
     expert_dataset = gail.ExpertDataset(expert_filename, num_trajectories=None, subsample_frequency=20, vae_modes=vae_modes)
     drop_last = len(expert_dataset) > args.gail_batch_size
@@ -121,7 +117,6 @@ def main():
     start = time.time()
     num_updates = int(args.num_env_steps) // args.num_steps
     for j in tqdm(range(num_updates)):
-        writer.flush()
         # decrease learning rate linearly
         utils.update_linear_schedule(
             agent.optimizer, j, num_updates,
@@ -163,7 +158,7 @@ def main():
         if j < 10:
             gail_epoch = 100  # Warm up
         for _ in range(gail_epoch):
-            discr.update(gail_train_loader, rollouts, obsfilt, writer, j)
+            discr.update(gail_train_loader, rollouts, obsfilt)
 
         ### update posterior
         if args.infogail:
@@ -177,8 +172,7 @@ def main():
                 rollouts.actions[step],
                 rollouts.latent_codes[step] if args.vae_gail else None,
                 args.gamma,
-                rollouts.masks[step],
-                writer, j)
+                rollouts.masks[step])
 
             # infogail reward
             if args.infogail:

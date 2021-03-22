@@ -53,7 +53,7 @@ class Discriminator(nn.Module):
         grad_pen = lambda_ * (grad.norm(2, dim=1) - 1).pow(2).mean()
         return grad_pen
 
-    def update(self, expert_loader, rollouts,  obsfilt=None, writer=None, i=0):
+    def update(self, expert_loader, rollouts,  obsfilt=None):
         self.train()
 
         policy_data_generator = rollouts.feed_forward_generator(
@@ -89,15 +89,6 @@ class Discriminator(nn.Module):
             gail_loss = expert_loss + policy_loss
             grad_pen = self.compute_grad_pen(expert_d_input, policy_d_input)
 
-            writer.add_scalar("Loss/gail", gail_loss, i)
-            writer.add_scalar("Loss/grad_pen", grad_pen, i)
-            writer.add_scalar("norm/expert/state",  torch.norm(expert_state[0]), i)
-            writer.add_scalar("norm/expert/action", torch.norm(expert_action[0]), i)
-            writer.add_scalar("norm/expert/latent", torch.norm(expert_latent_code[0]), i)
-            writer.add_scalar("norm/policy/state",  torch.norm(policy_state[0]), i)
-            writer.add_scalar("norm/policy/action", torch.norm(policy_action[0]), i)
-            writer.add_scalar("norm/policy/latent", torch.norm(policy_latent_code[0]), i)
-
             loss += (gail_loss + grad_pen).item()
             n += 1
 
@@ -107,7 +98,7 @@ class Discriminator(nn.Module):
 
         return loss / n
 
-    def predict_reward(self, state, action, latent_code, gamma, masks, writer, i):
+    def predict_reward(self, state, action, latent_code, gamma, masks):
         with torch.no_grad():
             self.eval()
             if latent_code is None:
@@ -115,14 +106,8 @@ class Discriminator(nn.Module):
             else:
                 d = self.trunk(torch.cat([state, action, latent_code], dim=1))
 
-                writer.add_scalar("norm/policy_at_reward/state", torch.norm(state[0]), i)
-                writer.add_scalar("norm/policy_at_reward/action", torch.norm(action[0]), i)
-                writer.add_scalar("norm/policy_at_reward/latent", torch.norm(latent_code[0]), i)
-
             s = torch.sigmoid(d)
-
             reward = s.log() - (1 - s).log()
-            writer.add_scalar("Reward (+/- 4.6 is bad)", reward, i)
 
             if self.returns is None:
                 self.returns = reward.clone()
