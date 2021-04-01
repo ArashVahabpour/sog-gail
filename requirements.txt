@@ -1,3 +1,5 @@
+h5py
+cv2
 pandas
 PyYAML
 tqdm

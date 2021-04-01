@@ -32,7 +32,7 @@ parser.add_argument(
 parser.add_argument(
     '--num-seeds',
     type=int,
-    default=4,
+    default=1,
     help='number of random seeds to generate')
 parser.add_argument(
     '--jobs',
@@ -52,7 +52,7 @@ for i in range(num_seeds):
     for job in jobs:
         job_args = ex.iloc[job, :]
         bool_keys = ['mujoco', 'vae-gail', 'infogail', 'sog-gail', 'adjust-scale', 'continuous']
-        var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id']
+        var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id', 'vae-kmeans-clusters']
 
         def template(key):
             value = job_args[key]
@@ -81,4 +81,4 @@ for i in range(num_seeds):
         "panes": panes_list
     })
 
-yaml.dump(config, open("run_all.yaml", "w"), default_flow_style=False)
+yaml.dump(config, open("run_all.yaml", "w"), width=1000, default_flow_style=False)
