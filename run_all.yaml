@@ -1,9 +1,0 @@
-session_name: run-all
-windows:
-- panes:
-  - python train.py --name c.hcv.infogail.0.1 --env-name HalfCheetahVel-v0 --mujoco --infogail --infogail-coef 0.1 --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 1 --result-interval 10 --save-interval 10 --gpu-id 2 --continuous --seed 0
-  - python train.py --name c.ad6.infogail.0.1 --env-name AntDir-v0 --mujoco --infogail
-    --infogail-coef 0.1 --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root
-    /mnt/SSD3/arash/sog-gail/results/ --latent-dim 1 --result-interval 10 --save-interval
-    10 --expert-filename trajs_antdir6.pt --gpu-id 0 --continuous --seed 0
-  window_name: seed-0
