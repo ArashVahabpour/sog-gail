@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.utils.data
 from torch.optim import Adam
 from torch import autograd
+from torch.distributions import Normal
 
 from baselines.common.running_mean_std import RunningMeanStd
 
@@ -122,26 +123,34 @@ class Discriminator(nn.Module):
 class Posterior(nn.Module):
     def __init__(self, input_dim, hidden_dim, args):
         super().__init__()
+        self.continuous = args.continuous
         self.model, self.model_target = [self.create_model(input_dim, hidden_dim, args.latent_dim, args.device) for _ in range(2)]
         self.optimizer = torch.optim.Adam(self.model.parameters())
         self.batch_size = args.gail_batch_size
+        self.latent_dim = args.latent_dim
 
-        self.no_rms = args.no_posterior_rms
-        if not self.no_rms:
-            self.returns = None
-            self.ret_rms = RunningMeanStd(shape=())
-
-    @staticmethod
-    def create_model(input_dim, hidden_dim, latent_dim, device):
-        return nn.Sequential(
-            nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
-            nn.Linear(hidden_dim, latent_dim), nn.Softmax(dim=1)).to(device)
+    def create_model(self, input_dim, hidden_dim, latent_dim, device):
+        if self.continuous:
+            return nn.Sequential(
+                nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
+                nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
+                nn.Linear(hidden_dim, latent_dim + 1)).to(device)
+        else:
+            return nn.Sequential(
+                nn.Linear(input_dim, hidden_dim), nn.LeakyReLU(),
+                nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(),
+                nn.Linear(hidden_dim, latent_dim), nn.Softmax(dim=1)).to(device)
 
     @staticmethod
     def categorical_cross_entropy(pred, target):
         eps = 1e-8  # to avoid numerical instability at log(0)
         return -((pred + eps) * target).sum(dim=1).log().mean()
+
+    @staticmethod
+    def log_likelihood(mu, log_scale, latent_code):
+        scale = torch.exp(log_scale)
+        dist = Normal(loc=mu, scale=scale)
+        return dist.log_prob(latent_code).sum(dim=1).mean()
 
     def update(self, rollouts):
         self.train()
@@ -154,7 +163,10 @@ class Posterior(nn.Module):
             state, latent_code, action = policy_batch[:3]
             p = self.model(torch.cat([state, action], dim=1))
 
-            loss = self.categorical_cross_entropy(p, latent_code)
+            if self.continuous:
+                loss = -self.log_likelihood(p[:, :-1], p[:, -1:], latent_code)
+            else:
+                loss = self.categorical_cross_entropy(p, latent_code)
 
             total_loss += loss.item()
             n += 1
@@ -175,19 +187,13 @@ class Posterior(nn.Module):
             self.eval()
 
             p = self.model_target(torch.cat([state, action], dim=1))
-            reward = -self.categorical_cross_entropy(p, latent_code)
 
-            if not self.no_rms:
-                if self.returns is None:
-                    self.returns = reward.clone()
-
-                self.returns = self.returns * masks * gamma + reward
-                self.ret_rms.update(self.returns.cpu().numpy())
-
-                return reward / np.sqrt(self.ret_rms.var[0] + 1e-8)
-
+            if self.continuous:
+                reward = self.log_likelihood(p[:, :-1], p[:, -1:], latent_code)
             else:
-                return reward
+                reward = -self.categorical_cross_entropy(p, latent_code)
+
+            return reward
 
     def forward(self, state, action):
         return self.model(torch.cat([state, action], dim=1))
