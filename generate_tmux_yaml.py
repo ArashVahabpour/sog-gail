@@ -28,7 +28,12 @@ parser.add_argument(
     '--task',
     type=str,
     default='train',
-    help='task to run: e.g. train, test, benchmark')
+    help='task to run: e.g. train, test')
+parser.add_argument(
+    '--test-task',
+    type=str,
+    default=None,
+    help='test task: e.g. benchmark, plot, play')
 parser.add_argument(
     '--num-seeds',
     type=int,
@@ -42,6 +47,7 @@ args = parser.parse_args()
 
 assert args.jobs, 'you must enter job indexes using --job-ids'
 jobs = range_expand(args.jobs)
+jobs = [job - 2 for job in jobs]
 num_seeds = args.num_seeds if args.task == 'train' else 1
 
 config = {"session_name": "run-all", "windows": []}
@@ -71,9 +77,12 @@ for i in range(num_seeds):
                 s += f' {value}'
             return s
 
+        assert args.task in ['train', 'test']
         command = ' '.join([f'python {args.task}.py'] + list(filter(bool, map(template, ex.columns))))
         if args.task == 'train':
             command += f' --seed {i}'
+        elif args.task == 'test' and args.test_task is not None:
+            command += f' --test-task {args.test_task}'
         panes_list.append(command)
 
     config["windows"].append({

@@ -41,14 +41,17 @@ class HalfCheetahDirEnv(HalfCheetahEnv):
         xposafter = self.sim.data.qpos[0]
 
         forward_vel = (xposafter - xposbefore) / self.dt
-        forward_reward = self._goal_dir * forward_vel
         ctrl_cost = 0.5 * 1e-1 * np.sum(np.square(action))
+        rewards = []
+        for task in self.tasks:
+            forward_reward = task['direction'] * forward_vel
+            reward = forward_reward - ctrl_cost
+            rewards.append(reward)
 
         observation = self._get_obs()
-        reward = forward_reward - ctrl_cost
         done = self.step_num >= self.max_steps
         infos = dict(reward_forward=forward_reward,
-            reward_ctrl=-ctrl_cost, task=self._task)
+                     reward_ctrl=-ctrl_cost, task=self._task, rewards=rewards)
         return (observation, reward, done, infos)
 
     def sample_tasks(self, num_tasks):

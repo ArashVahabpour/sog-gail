@@ -36,6 +36,12 @@ TODO: review the installation requirements above
 1. Modify `jobs.xlsx`
 2. Generate jobs as desired, e.g. ```python generate_tmux_yaml.py --num-seeds 4 --job-ids 0,1 --task 'benchmark'```
 3. Run the jobs: ```tmuxp load run_all.yaml```
+
+### Datasets
+You can download a set of expert datasets from [this]() Google Drive directory and put them in `gail_experts` sub-directory.
+Each file consists of torch tensors for states and actions of trajectories, as well as modes for each trajectory. 
+
 ---
 ### TODO
 - the extra `DiagGaussian` + the `CirclesMLP` module to be moved out of the main code base
+- take care of all TODO tags!

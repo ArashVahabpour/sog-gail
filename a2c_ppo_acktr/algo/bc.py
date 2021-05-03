@@ -15,10 +15,11 @@ class BC:
     def __init__(self, agent, save_filename, expert_filename, args, obsfilt, vae_modes):
         self.args = args
         self.save_filename = save_filename
-        self.data_loader = self.create_data_loader(expert_filename, vae_modes)
+        self.expert_filename = expert_filename
         self.actor_critic = agent.actor_critic
         self.sog = agent.sog
         self.obsfilt = obsfilt
+        self.vae_modes = vae_modes
 
     @staticmethod
     def flatten(x):

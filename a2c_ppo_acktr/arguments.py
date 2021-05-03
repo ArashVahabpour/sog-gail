@@ -28,7 +28,7 @@ def get_args(is_train):
         '--bc-epochs',
         type=int,
         default=100,
-        help='number of behavioral cloning epochs (default: 100)')
+        help='number of behavioral cloning epochs (default: 20)')
     # gail / ppo
     parser.add_argument(
         '--gail-experts-dir',
@@ -202,6 +202,13 @@ def get_args(is_train):
         default=False,
         help='no pretraining of the generator with behavioral cloning')
 
+    # test settings
+    parser.add_argument(
+        '--test-task',
+        type=str,
+        default='benchmark',
+        help='choices: benchmark, plot, play')
+
     # infogail
     parser.add_argument(
         '--infogail',
@@ -213,11 +220,6 @@ def get_args(is_train):
         type=float,
         default=0.1,
         help='mutual entropy lower bound coefficient (default: 0.1)')
-    parser.add_argument(
-        '--no-posterior-rms',
-        action='store_true',
-        default=False,
-        help='whether to normalize the posterior reward during training')
 
     # sog
     parser.add_argument(
@@ -229,7 +231,7 @@ def get_args(is_train):
         '--sog-gail-coef',
         type=float,
         default=0.1,
-        help='sog-gail term coefficient (default: 0.01)')
+        help='sog-gail term coefficient (default: 0.1)')
     parser.add_argument(
         '--block-size',
         type=int,
@@ -249,7 +251,7 @@ def get_args(is_train):
         '--latent-optimizer',
         type=str,
         default='ohs',
-        help='method to find best latent code: e.g. "bcs" for block coorindate search, or "ohs" for one-hot-search.')
+        help='method to find best latent code: e.g. "bcs" for block coordinate search, or "ohs" for one-hot-search.')
 
     # vae-gail
     parser.add_argument(
@@ -277,6 +279,11 @@ def get_args(is_train):
         type=int,
         default=5,
         help='number of vae epochs (default: 5)')
+    parser.add_argument(
+        '--vae-kmeans-clusters',
+        type=int,
+        default=-1,
+        help='number of k-means clusters of vae-gail embeddings as a hack to get good results. default of -1 for no clustering')
 
     # custom envs
     parser.add_argument(
@@ -317,7 +324,9 @@ def get_args(is_train):
         else:
             args.latent_batch_size = args.latent_dim
 
-    args.continuous |= (args.sog_gail and args.latent_optimizer == 'bcs') or args.vae_gail
+    # implicit cases for continuous latent code
+    args.continuous |= (args.sog_gail and args.latent_optimizer == 'bcs')
+    args.continuous |= (args.vae_gail and args.vae_kmeans_clusters > 0)
 
     # TODO Arash: separate away train/test options
     save_dir = os.path.join(args.save_dir, args.env_name.split('-')[0].lower(), args.name)  # directory to store network weights
