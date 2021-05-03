@@ -24,8 +24,17 @@ class BC:
     def flatten(x):
         return x.reshape(-1, x.shape[-1])
 
-    def create_data_loader(self, expert_filename, vae_modes):
-        expert = torch.load(expert_filename, map_location='cpu')
+    def shared_data_loader(self):
+        """A data loader that gives batches of (s,a) pairs from shared trajectories"""
+        expert = torch.load(self.expert_filename, map_location='cpu')
+        num_traj, traj_len = expert['states'].shape[:2]
+        for _ in range(num_traj * traj_len // self.args.bc_batch_size):
+            traj_idx = np.random.randint(0, num_traj)
+            step_idx = np.random.randint(0, traj_len, self.args.bc_batch_size)
+            yield [expert[key][traj_idx][step_idx] for key in ('states', 'actions')]
+
+    def nonshared_data_loader(self, vae_modes):
+        expert = torch.load(self.expert_filename, map_location='cpu')
         states, actions = self.flatten(expert['states']), self.flatten(expert['actions'])
 
         if self.args.vae_gail:
@@ -58,7 +67,8 @@ class BC:
         optimizer = optim.Adam(self.actor_critic.parameters())
 
         for epoch in tqdm(range(1, epochs + 1)):
-            for data in self.data_loader:
+            data_loader = self.shared_data_loader() if self.args.shared else self.nonshared_data_loader(self.vae_modes)
+            for data in data_loader:
                 data_x, data_y = data[:2]
                 data_x = self.obsfilt(data_x.numpy(), update=True)
                 data_x = torch.tensor(data_x, dtype=torch.float32, device=device)

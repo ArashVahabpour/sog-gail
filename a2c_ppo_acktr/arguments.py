@@ -189,7 +189,13 @@ def get_args(is_train):
         '--continuous',
         action='store_true',
         default=False,
-        help='whether the latent code is continuous')
+        help='whether the environment needs requires latent codes, e.g. HalfCheetahVel.')
+    parser.add_argument(
+        '--shared',
+        action='store_true',
+        default=False,
+        help='whether share the code')
+
     parser.add_argument(
         '--no-pretrain',
         action='store_true',
