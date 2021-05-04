@@ -123,7 +123,7 @@ class VAE(nn.Module):
             mus_np = mus.cpu().numpy()
             kmeans = KMeans(n_clusters=args.vae_kmeans_clusters).fit(mus_np)
             cluster_centers = torch.tensor(
-                kmeans.cluster_centers_[kmeans.predict(mus_np)],
+                kmeans.cluster_centers_,
                 device=device)
         else:
             cluster_centers = None

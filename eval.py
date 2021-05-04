@@ -101,7 +101,7 @@ class Plot(Base):
         count = None
         if args.vae_gail and args.vae_kmeans_clusters == -1:
             if args.env_name == 'Circles-v0':
-                count = 5
+                count = 3
             elif args.env_name == 'HalfCheetahVel-v0':
                 count = 30
         latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
@@ -222,7 +222,7 @@ class Plot(Base):
         plt.plot([0], [0], marker='o', markersize=3, color='k')
         plt.axis('off')
         plt.axis('equal')
-        plt.savefig(f'{args.filename}.png')
+        plt.savefig(f'{self.filename}.png')
         plt.close()
         self.env.close()
 
@@ -244,8 +244,8 @@ class Benchmark(Base):
         args = self.args
         device = args.device
 
-        num_rewards = args.vae_kmeans_clusters if args.vae_gail else args.latent_dim
-        assert num_rewards <= 6, 'all permutations of too many dimensions of latent codes is prohibitively costly'
+        num_modes = args.vae_kmeans_clusters if args.vae_gail else args.latent_dim
+        assert num_modes <= 6, 'all permutations of too many dimensions of latent codes is prohibitively costly, try implementing hungarian method'
 
         trajs_per_mode = 10
         max_episode_steps = 1000 if args.env_name == 'Circles-v0' else 200  # circles --> 1000 // mujoco --> 200
@@ -262,7 +262,7 @@ class Benchmark(Base):
             all_traj_rewards = []
             for _ in range(trajs_per_mode):
                 obs = self.env.reset()
-                traj_rewards = np.zeros(num_rewards)
+                traj_rewards = np.zeros(num_modes)
                 for step in range(max_episode_steps):
                     if group == 'expert':
                         action = circles_expert.policy(obs, args.radii[i])
@@ -276,31 +276,36 @@ class Benchmark(Base):
 
                     obs, _, _, infos = self.env.step(action)
                     traj_rewards += np.array(infos['rewards'])
+                # each element: [num_modes,]
                 all_traj_rewards.append(traj_rewards)
 
+            # [trajs_per_mode, num_modes]
             all_traj_rewards = np.stack(all_traj_rewards)
+
+            # each element: [num_modes,]
             all_mode_rewards_mean.append(all_traj_rewards.mean(axis=0))
             all_mode_rewards_std.append(all_traj_rewards.std(axis=0))
 
-            rew_mean, rew_std = np.stack(all_mode_rewards_mean), np.stack(all_mode_rewards_std)
+        # [num_modes, num_modes]
+        rew_mean, rew_std = np.stack(all_mode_rewards_mean), np.stack(all_mode_rewards_std)
 
-            # Record rewards according to best correspondence of latent codes and actual modes
-            max_reward, best_mean, best_std = -np.inf, None, None
-            for perm_mean, perm_std in zip(permutations(rew_mean), permutations(rew_std)):
-                tmp = np.array(perm_mean).trace()
-                if tmp > max_reward:
-                    max_reward = tmp
-                    best_mean = perm_mean
-                    best_std = perm_std
+        # Record rewards according to best correspondence of latent codes and actual modes
+        max_reward, best_mean, best_std = -np.inf, None, None
+        for perm_mean, perm_std in zip(permutations(rew_mean), permutations(rew_std)):
+            tmp = np.array(perm_mean).trace()
+            if tmp > max_reward:
+                max_reward = tmp
+                best_mean = perm_mean
+                best_std = perm_std
 
-            d = {'mean': np.diag(np.array(best_mean)), 'std': np.diag(np.array(best_std))}
-            self.store(group, d)
+        d = {'mean': np.diag(np.array(best_mean)), 'std': np.diag(np.array(best_std))}
+        self.store(group, d)
 
     def collect_mutual_info(self, group):
         args = self.args
         device = args.device
 
-        num_codes, num_repeats = 50, 1
+        num_codes, num_repeats = 30, 70
         max_episode_steps = 200
 
         if args.vae_gail:
@@ -309,8 +314,8 @@ class Benchmark(Base):
             # 30 x 70 x 1 x 1   or   30 x 70 x 1 x 20
             latent_codes = latent_codes.reshape(30, 70, 1, -1)
 
-            # latent_codes = latent_codes[:, :num_repeats]
-            x = np.arange(30)[:, None]
+            x = np.arange(30)
+
         else:
             cdf = np.linspace(.1, .9, num_codes)
             m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
@@ -319,7 +324,7 @@ class Benchmark(Base):
             latent_codes = m.icdf(torch.tensor(cdf, dtype=torch.float32)).to(device)
             # num_codes x num_repeats x 1 x 1
             latent_codes = latent_codes[:, None, None, None].expand(-1, num_repeats, -1, -1)
-            x = cdf[:, None]
+            x = cdf
 
         if args.env_name != 'HalfCheetahVel-v0':
             raise NotImplementedError
@@ -327,10 +332,11 @@ class Benchmark(Base):
         vel_mean = []
         vel_std = []
 
+        all_vels = []
         for j, latent_code_group in enumerate(latent_codes):
             vels = []
             for k,latent_code in enumerate(latent_code_group):
-                print(j,k )
+                print(j, k)
                 s = self.env.reset()
                 for step in range(max_episode_steps):
                     s = self.obsfilt(s, update=False)
@@ -342,10 +348,28 @@ class Benchmark(Base):
                     vels.append(infos['forward_vel'])
             vel_mean.append(np.mean(vels))
             vel_std.append(np.std(vels))
+            all_vels.append(vels)
         self.env.close()
 
+        # [num_codes, max_episode_steps * num_repeats]
+        all_vels = np.array(all_vels)
+        # [num_codes, max_episode_steps * num_repeats]
+        all_x = np.tile(x[:, None], (1, all_vels.shape[1]))
+
+        # [num_codes * max_episode_steps, ]
+        all_vels = all_vels.ravel()
+        # [num_codes * max_episode_steps, ]
+        all_x = all_x.reshape(len(all_vels), -1)
+        mutual_info = mutual_info_regression(all_x, all_vels)
+
         vel_mean, vel_std = np.array(vel_mean), np.array(vel_std)
-        self.store(group, {'mutual_info': mutual_info_regression(x, vel_mean)})
+        self.store(group, {'vel_mean': vel_mean,
+                           'vel_std': vel_std,
+                           'all_x': all_x,
+                           'all_vels': all_vels,
+                           'mutual_info': mutual_info})
+        print(f'--- {mutual_info} ---')
+
 
     def store(self, group, d):
         if group in self.h5:
@@ -411,3 +435,4 @@ def benchmark_env(args, actor_critic, obsfilt, epoch, vae_data=None):
         benchmark.collect_mutual_info(str(epoch))
     else:
         benchmark.collect_rewards(str(epoch))
+        # benchmark.collect_rewards('expert')
