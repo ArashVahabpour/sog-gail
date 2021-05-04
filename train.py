@@ -15,6 +15,7 @@ from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.envs import make_vec_envs
 from a2c_ppo_acktr.model import Policy
 from a2c_ppo_acktr.storage import RolloutStorage
+from eval import plot_env
 
 
 def main():
@@ -51,8 +52,8 @@ def main():
         envs.action_space,
         args)
     actor_critic.to(device)
-
     gail_input_dim = envs.observation_space.shape[0] + envs.action_space.shape[0]
+    discr = gail.Discriminator(gail_input_dim, 128, args)
     if args.infogail:
         posterior = gail.Posterior(gail_input_dim, 128, args)
     else:
@@ -69,22 +70,22 @@ def main():
 
     if args.vae_gail:
         if os.path.exists(vae_filename):
-            vae_modes = torch.load(vae_filename, map_location=device)
+            vae_data = torch.load(vae_filename, map_location=device)
         else:
             vae = VAE(args, expert_filename).to(device)
-            vae_modes = vae.recover_modes()
-            torch.save(vae_modes, vae_filename)
+            vae_data = vae.recover_modes()
+            torch.save(vae_data, vae_filename)
     else:
-        vae_modes = None
+        vae_data = None, None, None
+    vae_modes, _, _ = vae_data
 
+    # raise ValueError
     if not args.no_pretrain:
         BC(agent, bc_filename, expert_filename, args, obsfilt, vae_modes).pretrain(envs)
-        utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
+        plot_env(args, actor_critic, obsfilt, 'pretrain', vae_data=vae_data)
 
     if len(envs.observation_space.shape) != 1:
         raise NotImplementedError
-
-    discr = gail.Discriminator(gail_input_dim, 128, args)
 
     expert_dataset = gail.ExpertDataset(expert_filename, num_trajectories=None, subsample_frequency=20, vae_modes=vae_modes)
     drop_last = len(expert_dataset) > args.gail_batch_size
@@ -189,13 +190,12 @@ def main():
         ### save for every interval-th episode or for the last epoch
         if (j % args.save_interval == 0
                 or j == num_updates - 1) and args.save_dir != "":
-            for epoch in [j, 'latest']:
-                torch.save([
-                    actor_critic,
-                    discr,
-                    posterior if args.infogail else None,
-                    getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
-                ], args.save_filename.format(epoch))
+            torch.save([
+                actor_critic,
+                discr,
+                posterior if args.infogail else None,
+                getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
+            ], args.save_filename.format(j))
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_steps
@@ -213,8 +213,10 @@ def main():
 
         if j % args.result_interval == 0:
             ### visualize a sample trajectory
-            utils.visualize_env(args, actor_critic, obsfilt, j)
-
+            plot_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
+            # from eval import benchmark_env
+            # benchmark_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
+            # print('PLOT DISABLED')
 
 if __name__ == "__main__":
     main()
