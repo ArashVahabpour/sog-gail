@@ -9,7 +9,7 @@ from a2c_ppo_acktr.utils import init
 class Policy(nn.Module):
     def __init__(self, obs_shape, action_space, args):
         super(Policy, self).__init__()
-        if args.env_name == 'Circles-v0' or args.mujoco:
+        if args.env_name in {'Circles-v0', 'Ellipses-v0'} or args.mujoco:
             base = CirclesMLPBase
         else:
             raise NotImplementedError  # base = MLPBase

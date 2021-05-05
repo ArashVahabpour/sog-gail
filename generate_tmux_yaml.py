@@ -57,7 +57,7 @@ for i in range(num_seeds):
     panes_list = []
     for job in jobs:
         job_args = ex.iloc[job, :]
-        bool_keys = ['mujoco', 'vae-gail', 'infogail', 'sog-gail', 'adjust-scale', 'continuous']
+        bool_keys = ['mujoco', 'vae-gail', 'infogail', 'sog-gail', 'adjust-scale', 'continuous', 'shared']
         var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id', 'vae-kmeans-clusters']
 
         def template(key):

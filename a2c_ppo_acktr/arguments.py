@@ -294,7 +294,7 @@ def get_args(is_train):
     parser.add_argument(
         '--radii',
         type=str, default='-10,10,20',
-        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards. you may also input expressions such as "np.linspace(-10,10,100)".')
+        help='a list of radii to be sampled uniformly at random for "Circles-v0"or "Ellipses-v0" environment. a negative sign implies that the circle is to be drawn downwards. for ellipses: rx1, ry1, rx2, ry2, ... you may also input expressions such as "np.linspace(-10,10,100)".')
     parser.add_argument(
         '--mujoco',
         action='store_true',

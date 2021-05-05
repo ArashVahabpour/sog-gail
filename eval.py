@@ -69,28 +69,34 @@ class Play(Base):  # TODO fix faulty save of files
 class Plot(Base):
     def __init__(self, args, env, actor_critic, filename, obsfilt, vae_data):
         super(Plot, self).__init__(args, env, actor_critic, filename, obsfilt, vae_data)
-        self.max_episode_steps = 1000 if args.env_name == 'Circles-v0' else 200
+        self.max_episode_steps = 1000 if args.env_name in {'Circles-v0', 'Ellipses-v0'} else 200
 
     def plot(self):
-        {'Circles-v0': self._circles,
+        {'Circles-v0': self._circles_ellipses,
+         'Ellipses-v0': self._circles_ellipses,
         'HalfCheetahVel-v0': self._halfcheetahvel,
         'AntDir-v0': self._ant,
          }.get(self.args.env_name, lambda: None)()
 
-    def _circles(self):
+    def _circles_ellipses(self):
         args, actor_critic, filename = self.args, self.actor_critic, self.filename
 
         plt.figure(figsize=(10, 20))
         plt.set_cmap('gist_rainbow')
-        # plotting the actual circles
-        for r in args.radii:
-            t = np.linspace(0, 2 * np.pi, 200)
-            plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
-            max_r = np.max(np.abs(args.radii))
-            plt.axis('equal')
-            plt.axis('off')
-            plt.xlim([-1.5 * max_r, 1.5 * max_r])
-            plt.ylim([-3 * max_r, 3 * max_r])
+        # plotting the actual circles/ellipses
+        if args.env_name == 'Circles-v0':
+            for r in args.radii:
+                t = np.linspace(0, 2 * np.pi, 200)
+                plt.plot(r * np.cos(t), r * np.sin(t) + r, color='#d0d0d0')
+        elif args.env_name == 'Ellipses-v0':
+            for rx, ry in np.array(args.radii).reshape(-1, 2):
+                t = np.linspace(0, 2 * np.pi, 200)
+                plt.plot(rx * np.cos(t), ry * np.sin(t) + ry, color='#d0d0d0')
+        max_r = np.max(np.abs(args.radii))
+        plt.axis('equal')
+        plt.axis('off')
+        plt.xlim([-1.5 * max_r, 1.5 * max_r])
+        plt.ylim([-3 * max_r, 3 * max_r])
 
         import gym_sog
         env = gym.make(args.env_name, args=args)
@@ -100,10 +106,7 @@ class Plot(Base):
 
         count = None
         if args.vae_gail and args.vae_kmeans_clusters == -1:
-            if args.env_name == 'Circles-v0':
-                count = 3
-            elif args.env_name == 'HalfCheetahVel-v0':
-                count = 30
+            count = 3
         latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
 
         # generate rollouts and plot them
@@ -382,7 +385,7 @@ class Benchmark(Base):
 def plot_env(args, actor_critic, obsfilt, epoch, vae_data=None):
     filename = os.path.join(args.results_dir, str(epoch))
 
-    if args.env_name == 'Circles-v0':
+    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
         env = None
     elif args.mujoco:
         import rlkit
@@ -413,7 +416,7 @@ def play_env(args, actor_critic, obsfilt, epoch, vae_data=None):
 def benchmark_env(args, actor_critic, obsfilt, epoch, vae_data=None):
     filename = os.path.join(args.results_dir, str(epoch))
 
-    if args.env_name == 'Circles-v0':
+    if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
         import gym_sog
         env = gym.make(args.env_name, args=args)
     elif args.mujoco:
