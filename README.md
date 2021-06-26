@@ -1,4 +1,4 @@
-# Arash notes
+# SOG-GAIL
 Commands for training different experiments 
 
 ```shell script
