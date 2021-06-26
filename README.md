@@ -1,9 +1,16 @@
 # Arash notes
-This repository is blah blah blah... This is a generic code for gym environments with flat (1-dimensional) observation and action spaces.
-Continuous latent spaces not implemented
+To train the Circles experiment, run 
 
 ```shell script
-python train.py --name sog-pretrain-coef-0.1 --env-name Circles-v0 --sog-gail --sog-gail-coef 0.1 --latent-optimizer ohs --latent-dim 3 --gpu-id 1 --adjust-scale
+python train.py --name circles --env-name Circles-v0 --sog-gail --sog-gail-coef 0.1 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 3 --result-interval 10 --save-interval 5 --gpu-id 2 --adjust-scale --shared --seed 0
+python train.py --name antdir --env-name AntDir-v0 --mujoco --sog-gail --sog-gail-coef 0.1 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 2 --result-interval 10 --save-interval 5 --gpu-id 2 --shared --seed 0
+python train.py --name ad.s.shared.0.1x --env-name AntDir-v0 --mujoco --sog-gail --sog-gail-coef 0.01 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 2 --result-interval 10 --save-interval 5 --gpu-id 3 --shared --seed 0
+python train.py --name ad.s.shared.10x --env-name AntDir-v0 --mujoco --sog-gail --sog-gail-coef 1 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 2 --result-interval 10 --save-interval 5 --gpu-id 4 --shared --seed 0
+python train.py --name ad6.s.shared.10x.seed1 --env-name AntDir-v0 --mujoco --sog-gail --sog-gail-coef 1 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 6 --result-interval 10 --save-interval 5 --expert-filename trajs_antdir6.pt --gpu-id 0 --shared --seed 0
+python train.py --name ad6.s.shared.5x --env-name AntDir-v0 --mujoco --sog-gail --sog-gail-coef 0.5 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 6 --result-interval 10 --save-interval 5 --expert-filename trajs_antdir6.pt --gpu-id 0 --shared --seed 0
+python train.py --name ad6.s.shared.1x --env-name AntDir-v0 --mujoco --sog-gail --sog-gail-coef 0.1 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 6 --result-interval 10 --save-interval 5 --expert-filename trajs_antdir6.pt --gpu-id 0 --shared --seed 0
+python train.py --name hcd.s.shared.10x --env-name HalfCheetahDir-v0 --mujoco --sog-gail --sog-gail-coef 1 --latent-optimizer ohs --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 2 --result-interval 10 --save-interval 5 --gpu-id 2 --shared --seed 0
+python train.py --name hcv.s.shared.10x --env-name HalfCheetahVel-v0 --mujoco --sog-gail --sog-gail-coef 1 --latent-optimizer bcs --block-size 1 --save-dir /mnt/SSD3/arash/sog-gail/trained_models/ --results-root /mnt/SSD3/arash/sog-gail/results/ --latent-dim 1 --result-interval 10 --save-interval 5 --gpu-id 3 --shared --seed 0
 ```
 
 ---
@@ -28,20 +35,3 @@ pip install -e .
 # Other requirements
 pip install -r requirements.txt
 ```
-
-TODO: review the installation requirements above
-
----
-### Parallel jobs
-1. Modify `jobs.xlsx`
-2. Generate jobs as desired, e.g. ```python generate_tmux_yaml.py --num-seeds 4 --job-ids 0,1 --task 'benchmark'```
-3. Run the jobs: ```tmuxp load run_all.yaml```
-
-### Datasets
-You can download a set of expert datasets from [this]() Google Drive directory and put them in `gail_experts` sub-directory.
-Each file consists of torch tensors for states and actions of trajectories, as well as modes for each trajectory. 
-
----
-### TODO
-- the extra `DiagGaussian` + the `CirclesMLP` module to be moved out of the main code base
-- take care of all TODO tags!
