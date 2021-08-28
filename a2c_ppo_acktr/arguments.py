@@ -27,8 +27,8 @@ def get_args(is_train):
     parser.add_argument(
         '--bc-epochs',
         type=int,
-        default=100,
-        help='number of behavioral cloning epochs (default: 100)')
+        default=15,
+        help='number of behavioral cloning epochs (default: 15)')
     # gail / ppo
     parser.add_argument(
         '--gail-experts-dir',
@@ -189,12 +189,30 @@ def get_args(is_train):
         '--continuous',
         action='store_true',
         default=False,
-        help='whether the latent code is continuous')
+        help='whether the environment requires continuous latent codes, e.g. HalfCheetahVel.')
+    parser.add_argument(
+        '--shared',
+        action='store_true',
+        default=False,
+        help='whether share the code') #TODO always shared
+
     parser.add_argument(
         '--no-pretrain',
         action='store_true',
         default=False,
         help='no pretraining of the generator with behavioral cloning')
+
+    # test settings
+    parser.add_argument(
+        '--test-task',
+        type=str,
+        default='benchmark',
+        help='choices: benchmark, plot, play')
+    parser.add_argument(
+        '--test-perturb-amount',
+        type=float,
+        default=0.0,
+        help='what portion of actions are taken at random. choose a value between 0.0 and 1.0.')
 
     # infogail
     parser.add_argument(
@@ -207,11 +225,6 @@ def get_args(is_train):
         type=float,
         default=0.1,
         help='mutual entropy lower bound coefficient (default: 0.1)')
-    parser.add_argument(
-        '--no-posterior-rms',
-        action='store_true',
-        default=False,
-        help='whether to normalize the posterior reward during training')
 
     # sog
     parser.add_argument(
@@ -223,7 +236,7 @@ def get_args(is_train):
         '--sog-gail-coef',
         type=float,
         default=0.1,
-        help='sog-gail term coefficient (default: 0.01)')
+        help='sog-gail term coefficient (default: 0.1)')
     parser.add_argument(
         '--block-size',
         type=int,
@@ -243,7 +256,7 @@ def get_args(is_train):
         '--latent-optimizer',
         type=str,
         default='ohs',
-        help='method to find best latent code: e.g. "bcs" for block coorindate search, or "ohs" for one-hot-search.')
+        help='method to find best latent code: e.g. "bcs" for block coordinate search, or "ohs" for one-hot-search.')
 
     # vae-gail
     parser.add_argument(
@@ -271,6 +284,16 @@ def get_args(is_train):
         type=int,
         default=5,
         help='number of vae epochs (default: 5)')
+    parser.add_argument(
+        '--vae-num-modes',
+        type=int,
+        default=-1,
+        help='number of modes of the expert to be learned')
+    parser.add_argument(
+        '--vae-cheat',
+        action='store_true',
+        default=False,
+        help='feed the ground truth modes manually')
 
     # custom envs
     parser.add_argument(
@@ -281,7 +304,7 @@ def get_args(is_train):
     parser.add_argument(
         '--radii',
         type=str, default='-10,10,20',
-        help='a list of radii to be sampled uniformly at random for "Circles-v0" environment. a negative sign implies that the circle is to be drawn downwards. you may also input expressions such as "np.linspace(-10,10,100)".')
+        help='a list of radii to be sampled uniformly at random for "Circles-v0"or "Ellipses-v0" environment. a negative sign implies that the circle is to be drawn downwards. for ellipses: rx1, ry1, rx2, ry2, ... you may also input expressions such as "np.linspace(-10,10,100)".')
     parser.add_argument(
         '--mujoco',
         action='store_true',
@@ -301,6 +324,10 @@ def get_args(is_train):
         args.radii = eval(args.radii)
         # maximum action magnitude in Circles-v0 environment
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
+    
+    args.fetch_env = 'Fetch' in args.env_name  # if gym `Fetch` robotic experiments
+    if args.fetch_env:
+        args.max_ac_mag = 1
 
     args.vanilla = not (args.infogail or args.sog_gail or args.vae_gail)
     assert sum([args.infogail, args.sog_gail, args.vae_gail]) <= 1, 'at most one model flag could be active'
@@ -311,7 +338,9 @@ def get_args(is_train):
         else:
             args.latent_batch_size = args.latent_dim
 
-    args.continuous |= (args.sog_gail and args.latent_optimizer == 'bcs') or args.vae_gail
+    # implicit cases for continuous latent code
+    args.continuous |= (args.sog_gail and args.latent_optimizer == 'bcs')
+    args.continuous |= (args.vae_gail and args.vae_num_modes > 0)
 
     # TODO Arash: separate away train/test options
     save_dir = os.path.join(args.save_dir, args.env_name.split('-')[0].lower(), args.name)  # directory to store network weights
@@ -326,5 +355,8 @@ def get_args(is_train):
             for k, v in sorted(vars(args).items()):
                 args_file.write('%s: %s\n' % (str(k), str(v)))
             args_file.write('-------------- End ----------------\n')
+
+    expert_filename = args.expert_filename if args.expert_filename else 'trajs_{}.pt'.format(args.env_name.split('-')[0].lower())
+    args.expert_filename = os.path.join(args.gail_experts_dir, expert_filename)
 
     return args
