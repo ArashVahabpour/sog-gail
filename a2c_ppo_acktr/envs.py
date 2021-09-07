@@ -4,6 +4,7 @@ import gym
 import numpy as np
 import torch
 from gym.spaces.box import Box
+from gym.core import ObservationWrapper
 import gym_sog
 import rlkit  #TODO conditional loading of these libs
 from baselines import bench
@@ -13,21 +14,34 @@ from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
 from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
 
-try:
-    import dm_control2gym
-except ImportError:
-    pass
+# try:
+#     import dm_control2gym
+# except ImportError:
+#     pass
 
-try:
-    import roboschool
-except ImportError:
-    pass
+# try:
+#     import roboschool
+# except ImportError:
+#     pass
 
-try:
-    import pybullet_envs
-except ImportError:
-    pass
+# try:
+#     import pybullet_envs
+# except ImportError:
+#     pass
 
+class FetchWrapper(ObservationWrapper):
+    r"""Observation wrapper that makes `Fetch` environments compatible with the classic environment interface."""
+
+    def __init__(self, env):
+        super().__init__(env)
+        self.observation_space = env.observation_space['observation']
+
+    def observation(self, observation):
+        # achieved_goal can be recovered from obs[3:6]
+        return observation['observation']
+
+    def set_desired_goal(self, goal):
+        self.unwrapped.goal = goal
 
 def make_env(env_id, seed, rank, log_dir, allow_early_resets, args):
     def _thunk():
@@ -35,10 +49,12 @@ def make_env(env_id, seed, rank, log_dir, allow_early_resets, args):
             _, domain, task = env_id.split('.')
             env = dm_control2gym.make(domain_name=domain, task_name=task)
         else:
-            if args.env_name == 'Circles-v0':
+            if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
                 env = gym.make(env_id, args=args)
-            else:
+            else:  # fetch or Mujoco
                 env = gym.make(env_id)
+                if 'Fetch' in args.env_name:
+                    env = FetchWrapper(env)
 
         is_atari = hasattr(gym.envs, 'atari') and isinstance(
             env.unwrapped, gym.envs.atari.atari_env.AtariEnv)

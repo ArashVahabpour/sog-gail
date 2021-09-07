@@ -28,11 +28,16 @@ parser.add_argument(
     '--task',
     type=str,
     default='train',
-    help='task to run: e.g. train, test, benchmark')
+    help='task to run: e.g. train, test')
+parser.add_argument(
+    '--test-task',
+    type=str,
+    default=None,
+    help='test task: e.g. benchmark, plot, play')
 parser.add_argument(
     '--num-seeds',
     type=int,
-    default=4,
+    default=1,
     help='number of random seeds to generate')
 parser.add_argument(
     '--jobs',
@@ -42,6 +47,7 @@ args = parser.parse_args()
 
 assert args.jobs, 'you must enter job indexes using --job-ids'
 jobs = range_expand(args.jobs)
+jobs = [job - 2 for job in jobs]
 num_seeds = args.num_seeds if args.task == 'train' else 1
 
 config = {"session_name": "run-all", "windows": []}
@@ -51,8 +57,8 @@ for i in range(num_seeds):
     panes_list = []
     for job in jobs:
         job_args = ex.iloc[job, :]
-        bool_keys = ['mujoco', 'vae-gail', 'infogail', 'sog-gail', 'adjust-scale', 'continuous']
-        var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id']
+        bool_keys = ['mujoco', 'vae-gail', 'vae-cheat', 'infogail', 'sog-gail', 'adjust-scale', 'continuous', 'shared']
+        var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'n-rounds', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id', 'vae-num-modes',  'radii']
 
         def template(key):
             value = job_args[key]
@@ -69,11 +75,16 @@ for i in range(num_seeds):
                 except:
                     pass
                 s += f' {value}'
+                if key == 'name' and i > 0:
+                    s += f'.seed{i}'
             return s
 
+        assert args.task in ['train', 'test']
         command = ' '.join([f'python {args.task}.py'] + list(filter(bool, map(template, ex.columns))))
         if args.task == 'train':
             command += f' --seed {i}'
+        elif args.task == 'test' and args.test_task is not None:
+            command += f' --test-task {args.test_task}'
         panes_list.append(command)
 
     config["windows"].append({
@@ -81,4 +92,4 @@ for i in range(num_seeds):
         "panes": panes_list
     })
 
-yaml.dump(config, open("run_all.yaml", "w"), default_flow_style=False)
+yaml.dump(config, open("run_all.yaml", "w"), width=1000, default_flow_style=False)

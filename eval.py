@@ -30,6 +30,19 @@ class Base:
         self.vae_mus = vae_data[0]
         assert not args.vanilla, 'Vanilla GAIL benchmarking not implemented'
 
+    def _get_sog(self):
+        from a2c_ppo_acktr.algo.sog import OneHotSearch, BlockCoordinateSearch
+
+        args = self.args
+        if args.latent_optimizer == 'bcs':
+            SOG = BlockCoordinateSearch
+        elif args.latent_optimizer == 'ohs':
+            SOG = OneHotSearch
+        else:
+            raise NotImplementedError
+
+        return SOG(self.actor_critic, args) if args.sog_gail else None
+
 
 # TODO : if the new Play class is working, feel free to delete below.
 # class Play(Base):
@@ -75,6 +88,48 @@ class Base:
 #         video_writer.release()
 #         cv2.destroyAllWindows()
 
+# class Play(Base):
+#     def __init__(self, **kwargs):
+#         super(Play, self).__init__(**kwargs)
+#         max_episode_time = 10
+#         dt = kwargs['env'].dt
+#         self.max_episode_steps = int(max_episode_time / dt)
+
+#     def play(self):
+#         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+#         video_size = (250, 250)
+#         video_writer = cv2.VideoWriter(f'{self.filename}.avi', fourcc, 1 / self.env.dt, video_size)
+
+#         args = self.args
+
+#         count = None
+#         if args.vae_gail and args.env_name == 'HalfCheetahVel-v0':
+#             count = 30
+#         latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
+
+#         for j, latent_code in enumerate(latent_codes):
+#             episode_reward = 0
+#             s = self.env.reset()
+#             latent_code = latent_code[None]
+#             for step in range(self.max_episode_steps):
+#                 s = self.obsfilt(s, update=False)
+#                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+#                 with torch.no_grad():
+#                     _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+#                 action = actions_tensor[0].cpu().numpy()
+#                 s, r, done, _ = self.env.step(action)
+#                 episode_reward += r
+#                 if done:
+#                     break
+#                 I = self.env.render(mode='rgb_array')
+#                 I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
+#                 I = cv2.resize(I, video_size)
+#                 video_writer.write(I)
+#             video_writer.write(np.zeros([*video_size, 3], dtype=np.uint8))
+#             print(f"episode reward:{episode_reward:3.3f}")
+#         self.env.close()
+#         video_writer.release()
+#         cv2.destroyAllWindows()
 class Play(Base):
     def __init__(self, **kwargs):
         super(Play, self).__init__(**kwargs)
@@ -98,20 +153,20 @@ class Play(Base):
         s = self.env.reset()
 
         if args.fetch_env:
-            expert = torch.load(args.expert_filename, map_location='cpu')
+            expert = torch.load(args.expert_filename, map_location=args.device)
             count = 100  # try 30 of the goals from the expert trajectories
 
             ####### recover expert embeddings #######
-            sample_idx = np.random.randint(low=0, high=len(expert['states']), size=(count,))
-            # states, actions, desired_goals = [expert[key][sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
-            # sog = self._get_sog()
+            sample_idx = torch.randint(low=0, high=len(expert['states']), size=(count,))
+            states, actions, desired_goals = [expert[key][sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
+            sog = self._get_sog()
             # latent_codes = [sog.resolve_latent_code(traj_states, traj_actions)[0] for (traj_states, traj_actions) in zip(states, actions)]
             # np.savez('all.npz', goals=torch.stack(latent_codes).cpu().numpy())
 
             # raise Exception('done!')
             #########################################
 
-            latent_codes = generate_latent_codes(args, count=count, vae_data=None, eval=True)
+            # latent_codes = generate_latent_codes(args, count=count, vae_data=None, eval=True)
 
             # #$$$$$~~~~~~~~~~~~~~##@#$@#$@#$@#$
             # idx = [2,1,0]
@@ -133,16 +188,21 @@ class Play(Base):
                 count = 30
             latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
 
-        for j, latent_code in enumerate(latent_codes):
+        # for j, latent_code in range(latent_codes):
+        #   latent_code = latent_code[None]
+
+        for j in range(count):
+            latent_code = sog.resolve_latent_code(states[j], actions[j])
+
             episode_reward = 0
-            latent_code = latent_code[None]
-            # if args.fetch_env:
-            #     self.env.set_desired_goal(desired_goals[j])
+            if args.fetch_env:
+                self.env.set_desired_goal(desired_goals[j].cpu().numpy())
             #     print(desired_goals[j])
-            print(f'traj #{j+1}/{len(latent_codes)}')
+            print(f'traj #{j+1}/{count}')
             for step in range(self.max_episode_steps):
                 s = self.obsfilt(s, update=False)
                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+
                 with torch.no_grad():
                     _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
                 action = actions_tensor[0].cpu().numpy()
@@ -166,19 +226,6 @@ class Play(Base):
         video_writer.release()
         cv2.destroyAllWindows()
 
-    def _get_sog(self):
-        from a2c_ppo_acktr.algo.sog import OneHotSearch, BlockCoordinateSearch
-
-        args = self.args
-        if args.latent_optimizer == 'bcs':
-            SOG = BlockCoordinateSearch
-        elif args.latent_optimizer == 'ohs':
-            SOG = OneHotSearch
-        else:
-            raise NotImplementedError
-
-        return SOG(self.actor_critic, args) if args.sog_gail else None
-
 
 class Plot(Base):
     def __init__(self, **kwargs):
@@ -188,7 +235,10 @@ class Plot(Base):
         elif self.args.env_name == 'Ellipses-v0':
             self.max_episode_steps = 1000
         else:  # mujoco envs
-            self.max_episode_steps = 200
+            if self.args.fetch_env:
+                self.max_episode_steps = self.env.env._max_episode_steps
+            else:
+                self.max_episode_steps = 200
 
     def plot(self):
         {'Circles-v0': self._circles_ellipses,
@@ -266,16 +316,16 @@ class Plot(Base):
     
     def _fetch(self):
         args = self.args
+        device = args.device
         s = self.env.reset()
 
         expert = torch.load(args.expert_filename, map_location='cpu')
-        count = 100  # try 30 of the goals from the expert trajectories
-        # sample_idx = np.random.randint(low=0, high=len(expert['states']), size=(count,))
-        # states, actions, desired_goals = [expert[key][sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
-        # sog = self._get_sog()
-        # latent_codes = [sog.resolve_latent_code(traj_states, traj_actions)[0] for (traj_states, traj_actions) in zip(states, actions)]
+        count = 200  # try 30 of the goals from the expert trajectories
+        sample_idx = np.random.randint(low=0, high=len(expert['states']), size=(count,))
+        states, actions, desired_goals = [expert[key][sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
+        sog = self._get_sog()
 
-        latent_codes = generate_latent_codes(args, count=count, vae_data=None, eval=True)
+        # latent_codes = generate_latent_codes(args, count=count, vae_data=None, eval=True)
 
         # #$$$$$~~~~~~~~~~~~~~##@#$@#$@#$@#$
         # idx = [2,1,0]
@@ -285,7 +335,6 @@ class Plot(Base):
         # from scipy.stats import norm
         # latent_codes[:, 2] = torch.tensor(norm.ppf(np.linspace(0.01, 0.99, 10))).float().cuda()
 
-        print(latent_codes)
         achieved = []
         # desired_goals = np.array([
         #     [1.20175477, 0.8592347, 0.56066008],
@@ -293,13 +342,13 @@ class Plot(Base):
         #     [1.26080132, 0.6469777, 0.53606596]])
         # latent_codes = latent_codes[torch.arange(args.latent_dim).repeat_interleave(count // args.latent_dim)]
         
-        for j, latent_code in enumerate(latent_codes):
+        for i in range(count):
             episode_reward = 0
-            latent_code = latent_code[None]
-            # if args.fetch_env:
-            #     self.env.set_desired_goal(desired_goals[j])
-            #     print(desired_goals[j])
-            print(f'traj #{j+1}/{len(latent_codes)}')
+            # latent_code = latent_codes[i][None]
+            latent_code = sog.resolve_latent_code(states[i].to(device), actions[i].to(device))
+            if args.fetch_env:
+                self.env.set_desired_goal(desired_goals[i].numpy())
+            print(f'traj #{i+1}/{count}')
             for step in range(self.max_episode_steps):
                 s = self.obsfilt(s, update=False)
                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
@@ -312,7 +361,7 @@ class Plot(Base):
                     break
             if args.fetch_env:
                 achieved_goal = self.env.unwrapped.sim.data.get_site_xpos("robot0:grip").copy()
-                achieved.append(achieved_goal)
+                achieved.append(achieved_goal.copy())
                 success = self.env.unwrapped._is_success(achieved_goal, self.env.unwrapped.goal)
                 print('success' if success else 'failed')
             else:
@@ -322,11 +371,13 @@ class Plot(Base):
 
         x = np.array(achieved)
         x-=np.array([1.34183226, 0.74910038, 0.53472284])
-        x/=.15                               
-        fig = plt.figure(figsize=(15,15))                               
-        ax = fig.add_subplot(projection='3d')            
-        ax.scatter(*x.T)                                 
-        plt.savefig('a.png')                                       
+        x/=.15
+        fig = plt.figure(figsize=(15,15))
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(*x.T)
+        plt.savefig('a.png')
+
+        np.savez('a.npz', goals=x)
 
 
     def _halfcheetahvel(self):

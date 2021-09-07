@@ -15,6 +15,7 @@ from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.envs import make_vec_envs
 from a2c_ppo_acktr.model import Policy
 from a2c_ppo_acktr.storage import RolloutStorage
+from eval import plot_env, benchmark_env
 
 
 def main():
@@ -34,8 +35,7 @@ def main():
     utils.cleanup_log_dir(log_dir)
     utils.cleanup_log_dir(eval_log_dir)
 
-    expert_filename = args.expert_filename if args.expert_filename else 'trajs_{}.pt'.format(args.env_name.split('-')[0].lower())
-    expert_filename = os.path.join(args.gail_experts_dir, expert_filename)
+    expert_filename = args.expert_filename
 
     torch.set_num_threads(1)
     device = args.device
@@ -52,8 +52,8 @@ def main():
         envs.action_space,
         args)
     actor_critic.to(device)
-
     gail_input_dim = envs.observation_space.shape[0] + envs.action_space.shape[0]
+    discr = gail.Discriminator(gail_input_dim, 128, args)
     if args.infogail:
         posterior = gail.Posterior(gail_input_dim, 128, args)
     else:
@@ -66,30 +66,28 @@ def main():
         eps=args.eps,
         max_grad_norm=args.max_grad_norm)
 
-    bc_save_filename, vae_save_filename = [args.save_filename.format(s) for s in ('pretrain', 'vae_modes')]
+    bc_filename, vae_filename = [args.save_filename.format(s) for s in ('pretrain', 'vae_modes')]
 
     if args.vae_gail:
-        if args.CHEAT:
-            vae_modes = [torch.load('/tmp/CIRCLE_MODES.pt', map_location=device),] * 2
-        elif os.path.exists(vae_save_filename):
-            vae_modes = torch.load(vae_save_filename, map_location=device)
+        if os.path.exists(vae_filename):
+            vae_data = torch.load(vae_filename, map_location=device)
         else:
             vae = VAE(args, expert_filename).to(device)
-            vae_modes = vae.recover_modes()
-            torch.save(vae_modes, vae_save_filename)
+            vae_data = vae.recover_modes()
+            torch.save(vae_data, vae_filename)
     else:
-        vae_modes = None
+        vae_data = [None] * 4
+    vae_mus, _, _, vae_codes_all = vae_data
 
+    # raise ValueError
     if not args.no_pretrain:
-        BC(agent, bc_save_filename, expert_filename, args, obsfilt).pretrain(envs)
-        utils.visualize_env(args, actor_critic, obsfilt, 'pretrain')
+        BC(agent, bc_filename, expert_filename, args, obsfilt, vae_codes_all).pretrain(envs)
+        # plot_env(args, actor_critic, obsfilt, 'pretrain', vae_data=vae_data)
 
     if len(envs.observation_space.shape) != 1:
         raise NotImplementedError
 
-    discr = gail.Discriminator(gail_input_dim, 128, args)
-
-    expert_dataset = gail.ExpertDataset(expert_filename, num_trajectories=None, subsample_frequency=20)
+    expert_dataset = gail.ExpertDataset(expert_filename, num_traj=None, subsample_frequency=20, vae_modes=vae_codes_all)
     drop_last = len(expert_dataset) > args.gail_batch_size
     gail_train_loader = torch.utils.data.DataLoader(
         dataset=expert_dataset,
@@ -97,11 +95,13 @@ def main():
         shuffle=True,
         drop_last=drop_last)
 
+    sog_expert_dataset = gail.ExpertDataset(expert_filename, num_traj=None, subsample_frequency=20,
+                                            sog_expert=True, args=args)
     sog_train_loader = torch.utils.data.DataLoader(
-        dataset=expert_dataset,
+        dataset=sog_expert_dataset,
         batch_size=args.gail_batch_size,
-        shuffle=True,
-        drop_last=drop_last)
+        shuffle=(not args.shared),
+        drop_last=True)
     sog_train_loader = cycle(sog_train_loader)
 
     rollouts = RolloutStorage(args.num_steps, 1,
@@ -120,7 +120,6 @@ def main():
     start = time.time()
     num_updates = int(args.num_env_steps) // args.num_steps
     for j in tqdm(range(num_updates)):
-
         # decrease learning rate linearly
         utils.update_linear_schedule(
             agent.optimizer, j, num_updates,
@@ -130,7 +129,7 @@ def main():
         for step in range(args.num_steps):
             # Update latent code
             if args.vanilla or done[0]:
-                latent_code = utils.generate_latent_codes(args, 1)
+                latent_code = utils.generate_latent_codes(args, 1, vae_data)
 
             # Sample actions
             with torch.no_grad():
@@ -174,6 +173,7 @@ def main():
             rollouts.rewards[step] = discr.predict_reward(
                 rollouts.obs[step],
                 rollouts.actions[step],
+                rollouts.latent_codes[step] if args.vae_gail else None,
                 args.gamma,
                 rollouts.masks[step])
 
@@ -185,21 +185,19 @@ def main():
 
         rollouts.compute_returns(next_value, args.gamma, args.gae_lambda)
 
-        value_loss, action_loss, dist_entropy, sog_loss = agent.update(
-            rollouts, sog_train_loader, obsfilt)
+        value_loss, action_loss, dist_entropy, sog_loss = agent.update(rollouts, sog_train_loader, obsfilt)
 
         rollouts.after_update()
 
         ### save for every interval-th episode or for the last epoch
         if (j % args.save_interval == 0
                 or j == num_updates - 1) and args.save_dir != "":
-            for epoch in [j, 'latest']:
-                torch.save([
-                    actor_critic,
-                    discr,
-                    posterior if args.infogail else None,
-                    getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
-                ], args.save_filename.format(epoch))
+            torch.save([
+                actor_critic,
+                discr,
+                posterior if args.infogail else None,
+                getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
+            ], args.save_filename.format(j))
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_steps
@@ -216,9 +214,12 @@ def main():
                         ", sog loss {:.5f}".format(sog_loss) if args.sog_gail else ""))
 
         if j % args.result_interval == 0:
-            ### visualize a sample trajectory
-            utils.visualize_env(args, actor_critic, obsfilt, j)
-
+            ## visualize a sample trajectory
+            plot_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
+            # from eval import benchmark_env
+            # benchmark_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
+            # print('PLOT DISABLED')
+            pass
 
 if __name__ == "__main__":
     main()

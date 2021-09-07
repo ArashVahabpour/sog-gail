@@ -2,7 +2,6 @@ import torch
 import itertools
 from .base_search import BaseSearch
 
-
 class BlockCoordinateSearch(BaseSearch):
     """
     Block coordinate grid search optimizer over the distribution of points
@@ -44,12 +43,18 @@ class BlockCoordinateSearch(BaseSearch):
         """
 
         batch_size = action.shape[0]  # to accommodate for the end of the dataset when batch size might change
-        best_z = torch.zeros(batch_size, self.latent_dim, device=self.device)
-        # Go back over the latent vector and re-search 
+        if self.shared:
+            # the first dimension is later on replicated among all batch elements
+            best_z = torch.zeros(1, self.latent_dim, device=self.device)
+        else:
+            best_z = torch.zeros(batch_size, self.latent_dim, device=self.device)
+        # Go back over the latent vector and re-search
         for round_idx, block_idx in itertools.product(range(self.n_rounds),
                                                       range(self.latent_dim // self.block_size)):
             # batch_size x latent_batch_size x n_latent
             new_z = self._sample(best_z, block_idx)
+            if self.shared:
+                new_z = new_z.expand(batch_size, -1, -1)
             best_z = self.search_iter(new_z, actions=action, states=state)
 
         return best_z

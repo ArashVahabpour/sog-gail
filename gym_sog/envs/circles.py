@@ -218,11 +218,11 @@ class CirclesEnv(gym.Env):
 
     @staticmethod
     def _reward(old_loc, new_loc, radius):
-        x_old, y_old = old_loc
+        # x_old, y_old = old_loc
         x_new, y_new = new_loc
-        theta, theta_old = np.arctan2(y_new - radius, x_new), np.arctan2(y_old - radius, x_old)
-        delta_theta = (theta - theta_old + np.pi) % (
-                    2 * np.pi) - np.pi  # make sure that the difference is between -pi, pi
-        delta_theta_expert = 2 * np.pi / 100
+        # theta, theta_old = np.arctan2(y_new - radius, x_new), np.arctan2(y_old - radius, x_old)
+        # delta_theta = (theta - theta_old + np.pi) % (
+        #             2 * np.pi) - np.pi  # make sure that the difference is between -pi, pi
+        # delta_theta_expert = 2 * np.pi / 100
         r = np.sqrt((y_new - radius) ** 2 + x_new ** 2)
         return np.exp(-10 * ((r - abs(radius)) / abs(radius)) ** 2)

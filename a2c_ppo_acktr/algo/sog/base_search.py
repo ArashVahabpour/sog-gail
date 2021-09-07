@@ -11,6 +11,7 @@ class BaseSearch:
         self.latent_batch_size = args.latent_batch_size
         self.criterion = nn.MSELoss()
         self.criterion_no_reduction = nn.MSELoss(reduction='none')
+        self.shared = args.shared
 
     def search_iter(self, all_z, states, actions):
         batch_size = actions.shape[0]
@@ -48,8 +49,12 @@ class BaseSearch:
         # batch_size x latent_batch_size
         loss = loss.mean(dim=2)
 
-        # batch_size
-        _, argmin = loss.min(dim=1)
+        if self.shared:
+            _, argmin = loss.sum(dim=0).min(dim=0)
+            argmin = argmin.repeat(loss.shape[0])
+        else:
+            # batch_size
+            _, argmin = loss.min(dim=1)
 
         # new_z: batch_size x latent_batch_size x n_latent
         # best_idx: batch_size x 1 x n_latent

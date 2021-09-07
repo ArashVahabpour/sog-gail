@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 import numpy as np
+from sklearn.cluster import KMeans
 from tqdm import tqdm
 
 
@@ -20,7 +21,7 @@ class VAE(nn.Module):
         assert hidden_dim_lstm % 2 == 0, 'number of hidden units should be even for bi-lstm'
         self.lstm = nn.LSTM(state_dim, hidden_dim_lstm // 2, bidirectional=True)
         self.fc_e1 = nn.Linear(hidden_dim_lstm, latent_dim)  # maps to mu
-        self.fc_e2 = nn.Linear(hidden_dim_lstm, latent_dim)  # maps to sigma
+        self.fc_e2 = nn.Linear(hidden_dim_lstm, latent_dim)  # maps to log_var
 
         # decoder
         self.fc_d1 = nn.Linear(latent_dim + state_dim, hidden_dim_decoder)  # mlp layers on top of z, s
@@ -76,9 +77,18 @@ class VAE(nn.Module):
         return self._decoder(z, traj[idx]), mu, log_var
 
     def recover_modes(self):
+        """
+
+        Returns:
+            mus: vae mu output for each trajectory
+            log_vars: vae logvar output for each trajectory
+            vae_codes: unique codes in the case of using ground truth labels
+            vae_codes_all: trajectory codes in the case of using ground truth labels (shared among the trajectories with the same labels)
+        """
         print('started training vae-lstm...')
 
         args = self.args
+        device = args.device
 
         perm = np.random.permutation(len(self.expert['states']))
 
@@ -90,11 +100,11 @@ class VAE(nn.Module):
 
                 optimizer.zero_grad()
                 idx = np.random.choice(len(s), size=(args.lstm_batch_size,), replace=False)
-                s = s.to(args.device)
+                s = s.to(device)
 
                 recon_batch, mu, log_var = self.forward(s, idx)
                 s_hat, a_hat = recon_batch
-                loss = self._loss(s_hat, s[idx], a_hat, a[idx].to(args.device), mu, log_var)
+                loss = self._loss(s_hat, s[idx], a_hat, a[idx].to(device), mu, log_var)
 
                 loss.backward()
                 optimizer.step()
@@ -106,10 +116,22 @@ class VAE(nn.Module):
 
         # recovering latent codes of trajectories with the trained vae
         print('recovering latent codes for expert trajectories...')
-        mus = []
+        mus, log_vars = [], []
         for s in tqdm(self.expert['states']):
-            s = s.to(args.device)
-            _, mu, _ = self.forward(s, [])
+            s = s.to(device)
+            _, mu, log_var = self.forward(s, [])
             mus.append(mu.detach())
+            log_vars.append(log_var.detach())
         # num_traj x latent_dim
-        return torch.cat(mus)
+        mus, log_vars = torch.cat(mus), torch.cat(log_vars)
+        log_vars -= 2 * mus.std(dim=0).log()
+        mus = (mus - mus.mean(dim=0)) / mus.std(dim=0)
+
+        if args.vae_cheat:
+            modes = self.expert['modes']
+            vae_codes = torch.stack([mus[torch.nonzero(modes == i, as_tuple=True)].mean(dim=0) for i in range(args.vae_num_modes)])
+            vae_codes_all = vae_codes[modes.long()]
+        else:
+            vae_codes, vae_codes_all = mus, mus
+
+        return mus, log_vars, vae_codes, vae_codes_all
