@@ -11,8 +11,9 @@ from itertools import permutations
 import h5py
 from sklearn.feature_selection import mutual_info_regression
 import matplotlib.ticker as ticker
-from a2c_ppo_acktr.envs import FetchWrapper
+from a2c_ppo_acktr.envs import FetchWrapper  #TODO  remove fetch and add meta-world instead
 
+#TODO remove any 'fetch' related thing from the repo
 
 from a2c_ppo_acktr.utils import generate_latent_codes
 
@@ -197,7 +198,7 @@ class Play(Base):
             episode_reward = 0
             if args.fetch_env:
                 self.env.set_desired_goal(desired_goals[j].cpu().numpy())
-            #     print(desired_goals[j])
+                # print(desired_goals[j])
             print(f'traj #{j+1}/{count}')
             for step in range(self.max_episode_steps):
                 s = self.obsfilt(s, update=False)
@@ -214,10 +215,11 @@ class Play(Base):
                 I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
                 I = cv2.resize(I, video_size)
                 video_writer.write(I)
-            # if args.fetch_env:
-            #     achieved_goal = self.env.unwrapped.sim.data.get_site_xpos("robot0:grip").copy()
-            #     success = self.env.unwrapped._is_success(achieved_goal, self.env.unwrapped.goal)
-            #     print('success' if success else 'failed')
+            if args.fetch_env:
+                pass
+                # achieved_goal = self.env.unwrapped.sim.data.get_site_xpos("robot0:grip").copy()
+                # success = self.env.unwrapped._is_success(achieved_goal, self.env.unwrapped.goal)
+                # print('success' if success else 'failed')
             else:
                 print(f"episode reward:{episode_reward:3.3f}")
             s = self.env.reset()
@@ -420,7 +422,7 @@ class Plot(Base):
                     s, r, done, infos = self.env.step(action)
                     vels.append(infos['forward_vel'])
 
-            # fix for the dataset slight offset of the dataset that begins from 1.539 instead of accurate 1.5
+            # fix for the dataset slight offset of the dataset that begins from 1.539 instead of accurate 1.5 #TODO modify the dataset  instead
             rescale = lambda input, input_low, input_high, output_low, output_high: ((input - input_low) / (input_high - input_low)) * (output_high - output_low) + output_low
             vels = rescale(np.array(vels), 1.539, 3., 1.5, 3)
 
