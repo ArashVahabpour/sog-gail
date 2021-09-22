@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import os
-from ..utils import generate_latent_codes, get_vec_normalize
+from ..utils import generate_latent_codes, get_vec_normalize, load_expert
 from tqdm import tqdm
 
 
@@ -27,7 +27,7 @@ class BC:
 
     def shared_data_loader(self):
         """A data loader that gives batches of (s,a) pairs from shared trajectories"""
-        expert = torch.load(self.expert_filename, map_location='cpu')
+        expert = load_expert(self.expert_filename)
         num_traj, traj_len = expert['states'].shape[:2]
         for _ in range(num_traj * traj_len // self.args.bc_batch_size):
             traj_idx = np.random.randint(0, num_traj)
@@ -35,7 +35,7 @@ class BC:
             yield [expert[key][traj_idx][step_idx] for key in ('states', 'actions')]
 
     def nonshared_data_loader(self):
-        expert = torch.load(self.expert_filename, map_location='cpu')
+        expert = load_expert(self.expert_filename)
         states, actions = self.flatten(expert['states']), self.flatten(expert['actions'])
 
         if self.args.vae_gail:
@@ -55,7 +55,7 @@ class BC:
 
         if os.path.exists(self.save_filename):
             ob_rms = get_vec_normalize(envs).ob_rms
-            saved_actor_critic, _, _, saved_ob_rms = torch.load(self.save_filename, map_location=device)
+            saved_actor_critic, _, _, saved_ob_rms = load_expert(self.save_filename, device)
             actor_critic.load_state_dict(saved_actor_critic.state_dict())
             ob_rms.mean, ob_rms.var, ob_rms.count = saved_ob_rms.mean, saved_ob_rms.var, saved_ob_rms.count
             print('pretrained model loaded...')

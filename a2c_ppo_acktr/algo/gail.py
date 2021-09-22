@@ -1,3 +1,4 @@
+from a2c_ppo_acktr.utils import load_expert
 import numpy as np
 import torch
 import torch.nn as nn
@@ -201,7 +202,7 @@ class Posterior(nn.Module):
 
 def shared_data_loader(self):
     """A data loader that gives batches of (s,a) pairs from shared trajectories"""
-    expert = torch.load(self.expert_filename, map_location='cpu')
+    expert = load_expert(self.expert_filename)
     num_traj, traj_len = expert['states'].shape[:2]
     for _ in range(num_traj * traj_len // self.args.bc_batch_size):
         traj_idx = np.random.randint(0, num_traj)
@@ -211,7 +212,7 @@ def shared_data_loader(self):
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, filename, num_traj=4, subsample_frequency=20, vae_modes=None, sog_expert=False, args=None):
-        all_trajectories = torch.load(filename)
+        all_trajectories = load_expert(filename)
         num_all_traj, traj_len = all_trajectories['states'].shape[:2]
 
         if num_traj is None:

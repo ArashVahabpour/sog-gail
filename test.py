@@ -12,7 +12,7 @@ from a2c_ppo_acktr.utils import get_vec_normalize
 args = get_args(is_train=False)
 device = args.device
 
-for epoch in ['pretrain']: #['pretrain'] + list(range(0, int(args.num_env_steps) // args.num_steps, args.save_interval)):
+for epoch in [0,10]:#['pretrain']: #['pretrain'] + list(range(0, int(args.num_env_steps) // args.num_steps, args.save_interval)):
 
     print(epoch)
     if args.vae_gail:

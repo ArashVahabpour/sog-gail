@@ -5,6 +5,7 @@ from torch.optim import Adam
 import numpy as np
 from sklearn.cluster import KMeans
 from tqdm import tqdm
+from ..utils import load_expert
 
 
 class VAE(nn.Module):
@@ -12,7 +13,7 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
 
         self.args = args
-        self.expert = torch.load(expert_filename)
+        self.expert = load_expert(expert_filename)
         state_dim, action_dim = [self.expert[key].shape[2] for key in ['states', 'actions']]
 
         hidden_dim_lstm, hidden_dim_decoder, latent_dim = args.hidden_dim_lstm, args.hidden_dim_decoder, args.latent_dim

@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 from a2c_ppo_acktr.envs import VecNormalize
 from itertools import product
+import pathlib
 
 # from mujoco_py import GlfwContext
 # GlfwContext(offscreen=True) #TODO remove these lines if not really needed
@@ -118,3 +119,20 @@ def generate_latent_codes(args, count=None, vae_data=None, eval=False):
             return torch.randn((count, n), device=args.device)
         else:
             return torch.eye(n, device=args.device)[torch.randint(n, (count,))]
+
+def load_expert(filename, device='cpu'):
+    ext = pathlib.Path(filename).suffix
+    if ext == '.npz':
+        t = np.load(filename)
+        d = dict()
+        for k in t.keys():
+            d[k] = torch.tensor(t[k], device=device)
+            if k in ['states', 'actions']:
+                d[k] = d[k].float()
+
+    elif ext == '.pt':
+        d = torch.load(filename, map_location=device)
+    else:
+        raise ValueError('invalid extension for the expert file')
+
+    return d

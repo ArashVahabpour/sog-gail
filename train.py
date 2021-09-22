@@ -215,7 +215,7 @@ def main():
 
         if j % args.result_interval == 0:
             ## visualize a sample trajectory
-            plot_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
+            # plot_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
             # from eval import benchmark_env
             # benchmark_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
             # print('PLOT DISABLED')

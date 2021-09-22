@@ -189,17 +189,13 @@ class Play(Base):
                 count = 30
             latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
 
-        # for j, latent_code in range(latent_codes):
-        #   latent_code = latent_code[None]
-
-        for j in range(count):
-            latent_code = sog.resolve_latent_code(states[j], actions[j])
-
+        for j, latent_code in enumerate(latent_codes):
+            latent_code = latent_code[None]
             episode_reward = 0
             if args.fetch_env:
                 self.env.set_desired_goal(desired_goals[j].cpu().numpy())
                 # print(desired_goals[j])
-            print(f'traj #{j+1}/{count}')
+            print(f'traj #{j+1}/{len(latent_codes)}')
             for step in range(self.max_episode_steps):
                 s = self.obsfilt(s, update=False)
                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
