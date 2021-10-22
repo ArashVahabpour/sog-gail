@@ -12,6 +12,8 @@ import h5py
 from sklearn.feature_selection import mutual_info_regression
 import matplotlib.ticker as ticker
 from a2c_ppo_acktr.envs import FetchWrapper  #TODO  remove fetch and add meta-world instead
+from a2c_ppo_acktr.utils import load_expert
+
 
 #TODO remove any 'fetch' related thing from the repo
 
@@ -30,107 +32,43 @@ class Base:
         self.vae_data = vae_data
         self.vae_mus = vae_data[0]
         assert not args.vanilla, 'Vanilla GAIL benchmarking not implemented'
+        self.max_episode_steps = self._get_max_episode_steps()
 
-    def _get_sog(self):
-        from a2c_ppo_acktr.algo.sog import OneHotSearch, BlockCoordinateSearch
 
-        args = self.args
-        if args.latent_optimizer == 'bcs':
-            SOG = BlockCoordinateSearch
-        elif args.latent_optimizer == 'ohs':
-            SOG = OneHotSearch
+    def resolve_latent_code(self, states, actions, i):
+        def _get_sog(args, actor_critic):
+            from a2c_ppo_acktr.algo.sog import OneHotSearch, BlockCoordinateSearch
+
+            if args.latent_optimizer == 'bcs':
+                SOG = BlockCoordinateSearch
+            elif args.latent_optimizer == 'ohs':
+                SOG = OneHotSearch
+            else:
+                raise NotImplementedError
+            return SOG(actor_critic, args)
+
+        device = self.args.device
+        if self.args.sog_gail:
+            sog = _get_sog(self.args, self.actor_critic)
+            return sog.resolve_latent_code(torch.from_numpy(self.obsfilt(states[i].cpu().numpy(), update=False)).float().to(device), actions[i].to(device))[:1]
+        elif self.args.vae_gail:
+            return self.vae_mus[i]
+        elif self.args.infogail:
+            return generate_latent_codes(self.args, count=1, eval=True)
         else:
             raise NotImplementedError
 
-        return SOG(self.actor_critic, args) if args.sog_gail else None
+    def _get_max_episode_steps(self):
+        return {
+            'Circles-v0': 1000,
+            'AntDir-v0': 200,
+            'HalfCheetahVel-v0': 200,
+            'FetchReach-v0': 50,
+            'HopperVel-v0': 1000,
+            'Walker-v0': 1000,
+            'HumanoidDir-v0': 1000,
+        }.get(self.args.env_name, 200)
 
-
-# TODO : if the new Play class is working, feel free to delete below.
-# class Play(Base):
-#     def __init__(self, **kwargs):
-#         super(Play, self).__init__(**kwargs)
-#         max_episode_time = 10
-#         dt = kwargs['env'].dt
-#         self.max_episode_steps = int(max_episode_time / dt)
-
-#     def play(self):
-#         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-#         video_size = (250, 250)
-#         video_writer = cv2.VideoWriter(f'{self.filename}.avi', fourcc, 1 / self.env.dt, video_size)
-
-#         args = self.args
-
-#         count = None
-#         if args.vae_gail and args.env_name == 'HalfCheetahVel-v0':
-#             count = 30
-#         latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
-
-#         for j, latent_code in enumerate(latent_codes):
-#             episode_reward = 0
-#             s = self.env.reset()
-#             latent_code = latent_code[None]
-#             for step in range(self.max_episode_steps):
-#                 s = self.obsfilt(s, update=False)
-#                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
-#                 with torch.no_grad():
-#                     _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
-#                 action = actions_tensor[0].cpu().numpy()
-#                 s, r, done, _ = self.env.step(action)
-#                 episode_reward += r
-#                 if done:
-#                     break
-#                 I = self.env.render(mode='rgb_array')
-#                 I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
-#                 I = cv2.resize(I, video_size)
-#                 video_writer.write(I)
-#             video_writer.write(np.zeros([*video_size, 3], dtype=np.uint8))
-#             print(f"episode reward:{episode_reward:3.3f}")
-#         self.env.close()
-#         video_writer.release()
-#         cv2.destroyAllWindows()
-
-# class Play(Base):
-#     def __init__(self, **kwargs):
-#         super(Play, self).__init__(**kwargs)
-#         max_episode_time = 10
-#         dt = kwargs['env'].dt
-#         self.max_episode_steps = int(max_episode_time / dt)
-
-#     def play(self):
-#         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-#         video_size = (250, 250)
-#         video_writer = cv2.VideoWriter(f'{self.filename}.avi', fourcc, 1 / self.env.dt, video_size)
-
-#         args = self.args
-
-#         count = None
-#         if args.vae_gail and args.env_name == 'HalfCheetahVel-v0':
-#             count = 30
-#         latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
-
-#         for j, latent_code in enumerate(latent_codes):
-#             episode_reward = 0
-#             s = self.env.reset()
-#             latent_code = latent_code[None]
-#             for step in range(self.max_episode_steps):
-#                 s = self.obsfilt(s, update=False)
-#                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
-#                 with torch.no_grad():
-#                     _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
-#                 action = actions_tensor[0].cpu().numpy()
-#                 s, r, done, _ = self.env.step(action)
-#                 episode_reward += r
-#                 if done:
-#                     break
-#                 I = self.env.render(mode='rgb_array')
-#                 I = cv2.cvtColor(I, cv2.COLOR_RGB2BGR)
-#                 I = cv2.resize(I, video_size)
-#                 video_writer.write(I)
-#             video_writer.write(np.zeros([*video_size, 3], dtype=np.uint8))
-#             print(f"episode reward:{episode_reward:3.3f}")
-#         self.env.close()
-#         video_writer.release()
-#         cv2.destroyAllWindows()
 class Play(Base):
     def __init__(self, **kwargs):
         super(Play, self).__init__(**kwargs)
@@ -153,47 +91,50 @@ class Play(Base):
 
         s = self.env.reset()
 
-        if args.fetch_env:
+        if (args.fetch_env or args.mujoco) and args.continuous and args.env_name != 'HalfCheetahVel-v0':
             expert = torch.load(args.expert_filename, map_location=args.device)
-            count = 100  # try 30 of the goals from the expert trajectories
+
+            count = 30 if args.fetch_env else 5  # for fetch, try 30 of the goals from the expert trajectories
 
             ####### recover expert embeddings #######
-            sample_idx = torch.randint(low=0, high=len(expert['states']), size=(count,))
-            states, actions, desired_goals = [expert[key][sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
-            sog = self._get_sog()
-            # latent_codes = [sog.resolve_latent_code(traj_states, traj_actions)[0] for (traj_states, traj_actions) in zip(states, actions)]
-            # np.savez('all.npz', goals=torch.stack(latent_codes).cpu().numpy())
+            expert_len = len(expert['states'])
+            sample_idx = torch.randint(low=0, high=expert_len, size=(count,))
+            states, actions, desired_goals = [expert.get(key, [None]*expert_len)[sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
+            latent_codes = [self.resolve_latent_code(states, actions, i) for i in range(len(states))]
 
-            # raise Exception('done!')
-            #########################################
-
-            # latent_codes = generate_latent_codes(args, count=count, vae_data=None, eval=True)
-
-            # #$$$$$~~~~~~~~~~~~~~##@#$@#$@#$@#$
-            # idx = [2,1,0]
-            # latent_codes = latent_codes[idx]
-
-            # latent_codes = torch.zeros(count, 3, device=args.device)
-            # from scipy.stats import norm
-            # latent_codes[:, 2] = torch.tensor(norm.ppf(np.linspace(0.01, 0.99, 10))).float().cuda()
-
-            # print(latent_codes)
-            # desired_goals = np.array([
-            #     [1.20175477, 0.8592347, 0.56066008],
-            #     [1.39807643, 0.69955  , 0.56267877],
-            #     [1.26080132, 0.6469777, 0.53606596]])
-            # latent_codes = latent_codes[torch.arange(args.latent_dim).repeat_interleave(count // args.latent_dim)]
         else:
+            # if 'Humanoid' in args.env_name and args.continuous:
+                # expert = load_expert(args.expert_filename, device=args.device)
+                # ####### recover expert embeddings #######
+                # count = 5
+                # sample_idx = torch.randint(low=0, high=len(expert['states']), size=(count,))
+                # states, actions = [expert[key][sample_idx] for key in ('states', 'actions')]  # only keep the trajectories specified by `sample_idx`
+                # latent_codes = [self.resolve_latent_code(torch.from_numpy(self.obsfilt(states.cpu().numpy(), update=False)).float().to(args.device), actions, i) for i in len(states)]
+
+                # expert = load_expert(args.expert_filename, device=args.device)
+                # ####### recover expert embeddings #######
+                # latent_codes = list()
+                # possible_angles = torch.unique(expert['angles'])
+                # sog = self._get_sog()
+                # for angle in possible_angles:
+                #     sample_idx = expert['angles'] == angle
+                #     states, actions = [expert[key][sample_idx] for key in ('states', 'actions')]  # only keep the trajectories specified by `sample_idx`
+                #     from tqdm import tqdm
+                #     mode_list = []
+                #     for (traj_states, traj_actions) in tqdm(zip(states, actions)):
+                #         mode_list.append(sog.resolve_latent_code(torch.from_numpy(self.obsfilt(traj_states.cpu().numpy(), update=False)).float().to(args.device), traj_actions)[0])
+                #     latent_codes.append(torch.stack(mode_list).mean(0))
             count = None
             if args.vae_gail and args.env_name == 'HalfCheetahVel-v0':
                 count = 30
             latent_codes = generate_latent_codes(args, count=count, vae_data=self.vae_data, eval=True)
 
         for j, latent_code in enumerate(latent_codes):
-            latent_code = latent_code[None]
+            latent_code = latent_code
             episode_reward = 0
             if args.fetch_env:
                 self.env.set_desired_goal(desired_goals[j].cpu().numpy())
+                self.env._max_env_steps = 100
                 # print(desired_goals[j])
             print(f'traj #{j+1}/{len(latent_codes)}')
             for step in range(self.max_episode_steps):
@@ -226,26 +167,17 @@ class Play(Base):
 
 
 class Plot(Base):
-    def __init__(self, **kwargs):
-        super(Plot, self).__init__(**kwargs)
-        if self.args.env_name == 'Circles-v0':
-            self.max_episode_steps = 1000
-        elif self.args.env_name == 'Ellipses-v0':
-            self.max_episode_steps = 1000
-        else:  # mujoco envs
-            if self.args.fetch_env:
-                self.max_episode_steps = self.env.env._max_episode_steps
-            else:
-                self.max_episode_steps = 200
-
     def plot(self):
-        {'Circles-v0': self._circles_ellipses,
-         'Ellipses-v0': self._circles_ellipses,
+        return {'Circles-v0': self._circles_ellipses,
+        'Ellipses-v0': self._circles_ellipses,
         'HalfCheetahVel-v0': self._halfcheetahvel,
         'AntDir-v0': self._ant,
         'FetchReach-v1': self._fetch,
+        'Walker2dVel-v0': self._walker_hopper,
+        'HopperVel-v0': self._walker_hopper,
+        'HumanoidDir-v0': self._humanoid,
          }.get(self.args.env_name, lambda: None)()
-
+        
     def _circles_ellipses(self):
         args, actor_critic, filename = self.args, self.actor_critic, self.filename
 
@@ -314,68 +246,55 @@ class Plot(Base):
     
     def _fetch(self):
         args = self.args
-        device = args.device
-        s = self.env.reset()
+        actor_critic = self.actor_critic
+        obsfilt = self.obsfilt
+        filename = self.filename
 
-        expert = torch.load(args.expert_filename, map_location='cpu')
-        count = 200  # try 30 of the goals from the expert trajectories
+        # TODO   
+        expert = load_expert(args.expert_filename)
+        count = 100  # how many number of expert trajectories
         sample_idx = np.random.randint(low=0, high=len(expert['states']), size=(count,))
+        # sample_idx = np.arange(len(expert['states']))
         states, actions, desired_goals = [expert[key][sample_idx] for key in ('states', 'actions', 'desired_goal')]  # only keep the trajectories specified by `sample_idx`
-        sog = self._get_sog()
-
-        # latent_codes = generate_latent_codes(args, count=count, vae_data=None, eval=True)
-
-        # #$$$$$~~~~~~~~~~~~~~##@#$@#$@#$@#$
-        # idx = [2,1,0]
-        # latent_codes = latent_codes[idx]
-
-        # latent_codes = torch.zeros(count, 3, device=args.device)
-        # from scipy.stats import norm
-        # latent_codes[:, 2] = torch.tensor(norm.ppf(np.linspace(0.01, 0.99, 10))).float().cuda()
-
-        achieved = []
-        # desired_goals = np.array([
-        #     [1.20175477, 0.8592347, 0.56066008],
-        #     [1.39807643, 0.69955  , 0.56267877],
-        #     [1.26080132, 0.6469777, 0.53606596]])
-        # latent_codes = latent_codes[torch.arange(args.latent_dim).repeat_interleave(count // args.latent_dim)]
         
-        for i in range(count):
-            episode_reward = 0
-            # latent_code = latent_codes[i][None]
-            latent_code = sog.resolve_latent_code(states[i].to(device), actions[i].to(device))
-            if args.fetch_env:
-                self.env.set_desired_goal(desired_goals[i].numpy())
-            print(f'traj #{i+1}/{count}')
-            for step in range(self.max_episode_steps):
-                s = self.obsfilt(s, update=False)
+        # init env
+        env = gym.make(args.env_name)    
+
+        # init plots
+        matplotlib.rcParams['legend.fontsize'] = 10
+        fig = plt.figure(figsize=(3,3), dpi=300)
+        ax = fig.gca(projection='3d')
+
+
+        normalize = lambda x: (x - np.array([1.34183226, 0.74910038, 0.53472284]))/.15  # map the motion range to the unit cube
+        s = self.env.reset()
+        for i in range(len(states)):
+            env.unwrapped.goal = desired_goals[i].cpu().numpy()
+            latent_code = self.resolve_latent_code(states, actions, i)
+            
+            achieved_goals = np.zeros([env._max_episode_steps, 3])
+
+            s = env.reset()['observation']
+            
+            for step in range(env._max_episode_steps):
+                s = obsfilt(s, update=False)
                 s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+
                 with torch.no_grad():
-                    _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    _, actions_tensor, _ = actor_critic.act(s_tensor, latent_code, deterministic=True)
                 action = actions_tensor[0].cpu().numpy()
-                s, r, done, _ = self.env.step(action)
-                episode_reward += r
-                if done:
-                    break
-            if args.fetch_env:
-                achieved_goal = self.env.unwrapped.sim.data.get_site_xpos("robot0:grip").copy()
-                achieved.append(achieved_goal.copy())
-                success = self.env.unwrapped._is_success(achieved_goal, self.env.unwrapped.goal)
-                print('success' if success else 'failed')
-            else:
-                print(f"episode reward:{episode_reward:3.3f}")
-            s = self.env.reset()
-        self.env.close()
+                obs, _, _, _ = env.step(action)
+                s = obs['observation']
+                achieved_goals[step] = normalize(obs['achieved_goal'])
+            ax.plot(*achieved_goals.T)
 
-        x = np.array(achieved)
-        x-=np.array([1.34183226, 0.74910038, 0.53472284])
-        x/=.15
-        fig = plt.figure(figsize=(15,15))
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(*x.T)
-        plt.savefig('a.png')
-
-        np.savez('a.npz', goals=x)
+        if not args.infogail:
+            ax.scatter(*normalize(desired_goals).T)
+            
+        ax.set_xlim([-1,1])
+        ax.set_ylim([-1,1])
+        ax.set_zlim([-1,1])
+        plt.savefig(f'{filename}.png')
 
 
     def _halfcheetahvel(self):
@@ -391,7 +310,7 @@ class Plot(Base):
             # latent_codes = latent_codes[:, :num_repeats]
             x = np.linspace(1.5, 3, 30)
         else:
-            num_codes, num_repeats = 50, 30
+            num_codes, num_repeats = 100, 30
             cdf = np.linspace(.1, .9, num_codes)
             m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
             # num_codes
@@ -489,6 +408,137 @@ class Plot(Base):
         plt.close()
         self.env.close()
 
+    def _humanoid(self):
+        args = self.args
+        fig = plt.figure(figsize=(3,3), dpi=300)
+
+        num_repeats = 3
+
+        if args.vae_gail:
+            all_codes = generate_latent_codes(args, vae_data=self.vae_data, eval=True)
+        elif args.continuous:
+            if args.sog_gail:
+                latent_codes = []
+                count = 3
+
+                expert = load_expert(args.expert_filename, device=args.device)
+                modes = expert['modes'].cpu().numpy()
+                unique_modes = np.unique(modes)
+                for i in range(args.num_clusters):
+                    sample_idx = np.random.permutation(np.argwhere(modes==unique_modes[i]).squeeze())[:count]
+                    states, actions = [expert[key][sample_idx] for key in ('states', 'actions')]  # only keep the trajectories specified by `sample_idx`
+                    latent_codes.extend([self.resolve_latent_code(states, actions, i) for i in range(len(states))])
+            
+                all_codes = torch.cat(latent_codes)
+
+            else:
+                raise NotImplementedError
+        else:
+            all_codes = torch.eye(args.latent_dim, device=args.device)
+
+        # Turn off tick labels
+        ax = fig.add_subplot(1, 1, 1)
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(10.00))
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(10.00))
+        ax.xaxis.set_major_formatter(ticker.NullFormatter())
+        ax.xaxis.set_minor_formatter(ticker.NullFormatter())
+        ax.yaxis.set_major_formatter(ticker.NullFormatter())
+        ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+        ax.set_xlim([-300, 300])
+        ax.set_ylim([-300, 300])
+
+        m = []
+        for j, latent_code in enumerate(all_codes):
+            latent_code = latent_code[None]
+            for _ in range(num_repeats):
+                s = self.env.reset()
+                xvel = []
+                for step in range(self.max_episode_steps):
+                    s = self.obsfilt(s, update=False)
+                    s_tensor = torch.tensor(s, dtype=torch.float32, device=args.device)[None]
+                    with torch.no_grad():
+                        _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    action = actions_tensor[0].cpu().numpy()
+                    s, r, done, infos = self.env.step(action)
+                    xvel.append(s[22:24])
+                xpos = np.cumsum(np.array(xvel), axis=0)
+                m.append(np.max(np.abs(xpos)))
+                ax.plot(xpos[:, 0], xpos[:, 1], color=(plt.cm.Dark2.colors[j//count if (args.sog_gail and args.continuous) else j]))
+        ax.plot([0], [0], marker='o', markersize=3, color='k')
+        if args.vae_gail or args.infogail:
+            # TODO
+            m = max(m) * (np.random.rand() * 3 + 1)
+            ax.set_xlim([-m,m])
+            ax.set_ylim([-m,m])
+        plt.savefig(f'{self.filename}.png')
+        plt.close()
+        self.env.close()
+
+
+    def _walker_hopper(self):
+        args = self.args
+
+        device = args.device
+        filename = self.filename
+
+        count_per_mode = 3
+
+        if args.continuous:
+            expert = load_expert(args.expert_filename)
+            
+        if self.args.vae_gail:
+            modes = load_expert(args.expert_filename)['modes']
+            latent_codes = self.vae_mus
+            # group latent codes into groups
+            latent_codes = [latent_codes[modes==m][:count_per_mode] for m in np.unique(modes)]
+        elif args.continuous:
+            if args.sog_gail:
+                latent_codes = []
+
+                expert = load_expert(args.expert_filename, device=args.device)
+                modes = expert['modes'].cpu().numpy()
+                unique_modes = np.unique(modes)
+                for i in range(args.num_clusters):
+                    sample_idx = np.random.permutation(np.argwhere(modes==unique_modes[i]).squeeze())[:count_per_mode]
+                    states, actions = [expert[key][sample_idx] for key in ('states', 'actions')]  # only keep the trajectories specified by `sample_idx`
+                    latent_codes.append(torch.cat([self.resolve_latent_code(states, actions, i) for i in range(len(states))]))
+        else:
+            latent_codes = torch.eye(args.latent_dim, device=args.device).unsqueeze(1).expand(-1, count_per_mode, -1)
+
+
+        #>>>>>>                                                  <<<<<<<
+        #>>>>>>>>>>>>>> find x, latent codes in all cases <<<<<<<<<<<<<<
+        #>>>>>>                                                  <<<<<<<
+
+        vels_all = []
+
+        for j, latent_code_group in enumerate(latent_codes):
+            vels_mode = []
+            for k, latent_code in enumerate(latent_code_group):
+                vels = []
+                latent_code = latent_code[None]
+                s = self.env.reset()
+                for step in range(self.max_episode_steps):
+                    s = self.obsfilt(s, update=False)
+                    s_tensor = torch.tensor(s, dtype=torch.float32, device=device)[None]
+                    with torch.no_grad():
+                        _, actions_tensor, _ = self.actor_critic.act(s_tensor, latent_code, deterministic=True)
+                    action = actions_tensor[0].cpu().numpy()
+                    s, r, done, infos = self.env.step(action)
+                    vels.append(infos['forward_vel'])
+                vels_mode.append(vels)
+            vels_all.append(vels_mode)
+        self.env.close()
+
+        plt.figure(figsize=(3, 2), dpi=300)
+        for i, vels_mode in enumerate(vels_all):
+            for j, vels in enumerate(vels_mode):
+                plt.plot(np.arange(len(vels)), vels, color=plt.cm.Dark2.colors[i])
+        plt.xlim([0, self.max_episode_steps - 1])
+        plt.ylim([-3,3])
+        plt.savefig(f'{filename}.png')
+        plt.close()
+
 
 class Benchmark(Base):
     def collect_rewards(self, group):
@@ -507,7 +557,6 @@ class Benchmark(Base):
         assert num_modes <= 6, 'all permutations of too many dimensions of latent codes is prohibitively costly, try implementing hungarian method'
 
         trajs_per_mode = 10
-        max_episode_steps = 1000 if args.env_name in {'Circles-v0', 'Ellipses-v0'} else 200  # circles --> 1000 // mujoco --> 200
 
         if group == 'expert':
             return
@@ -526,7 +575,7 @@ class Benchmark(Base):
                 print(_)
                 obs = self.env.reset()
                 traj_rewards = np.zeros(num_modes)
-                for step in range(max_episode_steps):
+                for step in range(self.max_episode_steps):
                     # if group == 'expert':
                     #     action = circles_expert.policy(obs, args.radii[i])
                     # else:
@@ -574,7 +623,6 @@ class Benchmark(Base):
         device = args.device
 
         num_codes, num_repeats = 30, 1#70
-        max_episode_steps = 200
 
         if args.vae_gail:
             # 2100 x 1   or   2100 x 20
@@ -606,7 +654,7 @@ class Benchmark(Base):
             for k,latent_code in enumerate(latent_code_group):
                 print(j, k)
                 s = self.env.reset()
-                for step in range(max_episode_steps):
+                for step in range(self.max_episode_steps):
                     s = self.obsfilt(s, update=False)
                     s_tensor = torch.tensor(s, dtype=torch.float32, device=device)[None]
                     with torch.no_grad():
@@ -652,13 +700,6 @@ class Benchmark(Base):
 
 
 class RobustnessTest(Benchmark):
-    def __init__(self, args, env, actor_critic, filename, obsfilt, vae_data):
-        super(RobustnessTest, self).__init__(args, env, actor_critic, filename, obsfilt, vae_data)
-        if args.env_name == 'Circles-v0':
-            self.max_episode_steps = 1000
-        else:  # mujoco envs
-            self.max_episode_steps = 200
-
     def robustness_test(self, epoch):
         args = self.args
         if args.env_name == 'Circles-v0':
@@ -845,8 +886,8 @@ def benchmark_env(args, actor_critic, obsfilt, epoch, vae_data=None):
         import rlkit
         kwargs = {}
         if args.env_name == 'AntDir-v0':
-            if args.vae_gail and args.vae_num_modes > 0:
-                kwargs['n_tasks'] = args.vae_num_modes
+            if args.vae_gail and args.num_clusters > 0:
+                kwargs['n_tasks'] = args.num_clusters
             elif not args.continuous:
                 kwargs['n_tasks'] = args.latent_dim
             else:
@@ -872,8 +913,8 @@ def robustness_test(args, actor_critic, obsfilt, epoch, vae_data=None):
         import rlkit
         kwargs = {}
         if args.env_name == 'AntDir-v0':
-            if args.vae_gail and args.vae_num_modes > 0:
-                kwargs['n_tasks'] = args.vae_num_modes
+            if args.vae_gail and args.num_clusters > 0:
+                kwargs['n_tasks'] = args.num_clusters
             elif not args.continuous:
                 kwargs['n_tasks'] = args.latent_dim
             else:
