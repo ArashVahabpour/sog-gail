@@ -46,8 +46,9 @@ class FetchWrapper(ObservationWrapper):
 def make_env(env_id, seed, rank, log_dir, allow_early_resets, args):
     def _thunk():
         if env_id.startswith("dm"):
-            _, domain, task = env_id.split('.')
-            env = dm_control2gym.make(domain_name=domain, task_name=task)
+            raise NotImplementedError
+            # _, domain, task = env_id.split('.')
+            # env = dm_control2gym.make(domain_name=domain, task_name=task)
         else:
             if args.env_name in {'Circles-v0', 'Ellipses-v0'}:
                 env = gym.make(env_id, args=args)

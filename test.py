@@ -12,8 +12,11 @@ from a2c_ppo_acktr.utils import get_vec_normalize
 args = get_args(is_train=False)
 device = args.device
 
-for epoch in [0,10]:#['pretrain']: #['pretrain'] + list(range(0, int(args.num_env_steps) // args.num_steps, args.save_interval)):
-
+if args.which_epoch is None:
+    epochs  = ['pretrain', 0]#['pretrain']+list(range(0, int(args.num_env_steps) // args.num_steps, args.save_interval))
+else:
+    epochs = [args.which_epoch]
+for epoch in epochs:
     print(epoch)
     if args.vae_gail:
         vae_filename = args.save_filename.format('vae_modes')
@@ -28,7 +31,6 @@ for epoch in [0,10]:#['pretrain']: #['pretrain'] + list(range(0, int(args.num_en
 
     load_path = os.path.join(args.save_filename.format(epoch))
     actor_critic, _, _, saved_ob_rms = torch.load(load_path, map_location=args.device)
-
     args.device = list(actor_critic.base.parameters())[0].device
     ob_rms.mean, ob_rms.var, ob_rms.count = saved_ob_rms.mean, saved_ob_rms.var, saved_ob_rms.count
 

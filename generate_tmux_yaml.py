@@ -45,7 +45,7 @@ parser.add_argument(
     help='job rows in the spreadsheet, e.g. "0-2,4-9,11" . note that indices should begin from 0.')
 args = parser.parse_args()
 
-assert args.jobs, 'you must enter job indexes using --job-ids'
+assert args.jobs, 'you must enter job indexes using --jobs'
 jobs = range_expand(args.jobs)
 jobs = [job - 2 for job in jobs]
 num_seeds = args.num_seeds if args.task == 'train' else 1
@@ -58,7 +58,7 @@ for i in range(num_seeds):
     for job in jobs:
         job_args = ex.iloc[job, :]
         bool_keys = ['mujoco', 'vae-gail', 'vae-cheat', 'infogail', 'sog-gail', 'adjust-scale', 'continuous', 'shared']
-        var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'n-rounds', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'expert-filename', 'gpu-id', 'vae-num-modes',  'radii']
+        var_keys = ['name', 'env-name', 'infogail-coef', 'sog-gail-coef', 'latent-optimizer', 'block-size', 'save-dir', 'results-root', 'latent-dim', 'result-interval', 'save-interval', 'gail-experts-dir', 'expert-filename', 'gpu-id', 'num-clusters',  'radii']
 
         def template(key):
             value = job_args[key]

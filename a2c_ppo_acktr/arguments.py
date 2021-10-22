@@ -15,7 +15,7 @@ def get_args(is_train):
         help='name of the experiment. It decides where to store samples and models')
     parser.add_argument(
         '--which-epoch',
-        type=str, default='latest',
+        type=str, default=None,
         help='which epoch to load? set to latest to use latest cached model')
 
     # behavioral cloning
@@ -27,7 +27,7 @@ def get_args(is_train):
     parser.add_argument(
         '--bc-epochs',
         type=int,
-        default=15,
+        default=5,
         help='number of behavioral cloning epochs (default: 15)')
     # gail / ppo
     parser.add_argument(
@@ -206,7 +206,7 @@ def get_args(is_train):
     parser.add_argument(
         '--test-task',
         type=str,
-        default='benchmark',
+        default='plot',
         help='choices: benchmark, plot, play')
     parser.add_argument(
         '--test-perturb-amount',
@@ -240,18 +240,13 @@ def get_args(is_train):
     parser.add_argument(
         '--block-size',
         type=int,
-        default=2,
+        default=1,
         help='size of coordinate search blocks')
     parser.add_argument(
         '--samples-per-dim',
         type=int,
-        default=32,
+        default=100,
         help='number of samples per dimension')
-    parser.add_argument(
-        '--n-rounds',
-        type=int,
-        default=1,
-        help='number of coordinate search rounds')
     parser.add_argument(
         '--latent-optimizer',
         type=str,
@@ -285,7 +280,7 @@ def get_args(is_train):
         default=5,
         help='number of vae epochs (default: 5)')
     parser.add_argument(
-        '--vae-num-modes',
+        '--num-clusters',
         type=int,
         default=-1,
         help='number of modes of the expert to be learned')
@@ -311,6 +306,13 @@ def get_args(is_train):
         default=False,
         help='indicates using of a mujoco env')
 
+    # EXPERIMENTAL/ TODO remove  (and  all  traces of [args.]hidden_size in other files)
+    parser.add_argument(
+        '--hidden-size',
+        type=int,
+        default=128,
+        help='dim of latent codes')
+
     args = parser.parse_args()
     args.is_train = is_train
 
@@ -326,8 +328,13 @@ def get_args(is_train):
         args.max_ac_mag = max(map(abs, args.radii)) * 0.075
     
     args.fetch_env = 'Fetch' in args.env_name  # if gym `Fetch` robotic experiments
-    if args.fetch_env:
-        args.max_ac_mag = 1
+    
+    # max_ac_mag_dict = {'FetchReach-v1': 1, 'Walker2dVel-v0': 1, 'HopperVel-v0': 1, 'HumanoidDir-v0': 0.4}
+    # if args.env_name in max_ac_mag_dict and args.adjust_scale:
+    #     args.max_ac_mag = max_ac_mag_dict[args.env_name]
+    #     print(f'CHANGED MAX AC MAG TO {args.max_ac_mag} <<<<<<')
+    # else:
+    #     raise Exception
 
     args.vanilla = not (args.infogail or args.sog_gail or args.vae_gail)
     assert sum([args.infogail, args.sog_gail, args.vae_gail]) <= 1, 'at most one model flag could be active'
@@ -340,7 +347,14 @@ def get_args(is_train):
 
     # implicit cases for continuous latent code
     args.continuous |= (args.sog_gail and args.latent_optimizer == 'bcs')
-    args.continuous |= (args.vae_gail and args.vae_num_modes > 0)
+    args.continuous |= (args.vae_gail and args.num_clusters > 0)
+
+    # correct n-rounds if needed
+    if args.latent_dim // args.block_size == 1:
+        args.n_rounds = 1  # more rounds will be pointless
+    else:
+        args.n_rounds = 3  # for better performance we need at least 3 rounds of correction
+    print(f'args.n_rounds={args.n_rounds}')
 
     # TODO Arash: separate away train/test options
     save_dir = os.path.join(args.save_dir, args.env_name.split('-')[0].lower(), args.name)  # directory to store network weights

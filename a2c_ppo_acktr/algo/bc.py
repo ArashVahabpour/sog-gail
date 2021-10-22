@@ -29,9 +29,11 @@ class BC:
         """A data loader that gives batches of (s,a) pairs from shared trajectories"""
         expert = load_expert(self.expert_filename)
         num_traj, traj_len = expert['states'].shape[:2]
-        for _ in range(num_traj * traj_len // self.args.bc_batch_size):
+        bc_batch_size = self.args.bc_batch_size
+        assert bc_batch_size <= traj_len, 'batch size cannot be larger than trajectory length'
+        for _ in range(num_traj * traj_len // bc_batch_size):
             traj_idx = np.random.randint(0, num_traj)
-            step_idx = np.random.randint(0, traj_len, self.args.bc_batch_size)
+            step_idx = np.random.permutation(traj_len)[:bc_batch_size]
             yield [expert[key][traj_idx][step_idx] for key in ('states', 'actions')]
 
     def nonshared_data_loader(self):
@@ -55,7 +57,7 @@ class BC:
 
         if os.path.exists(self.save_filename):
             ob_rms = get_vec_normalize(envs).ob_rms
-            saved_actor_critic, _, _, saved_ob_rms = load_expert(self.save_filename, device)
+            saved_actor_critic, _, _, saved_ob_rms = torch.load(self.save_filename, device)
             actor_critic.load_state_dict(saved_actor_critic.state_dict())
             ob_rms.mean, ob_rms.var, ob_rms.count = saved_ob_rms.mean, saved_ob_rms.var, saved_ob_rms.count
             print('pretrained model loaded...')
@@ -63,11 +65,12 @@ class BC:
 
         print('behavioral cloning pretraining started...')
 
-        losses = []
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.actor_critic.parameters())
 
-        for epoch in tqdm(range(1, epochs + 1)):
+        for epoch in tqdm(range(1, epochs + 1)): 
+            losses = []
+
             data_loader = self.shared_data_loader() if self.args.shared else self.nonshared_data_loader()
             for data in data_loader:
                 data_x, data_y = data[:2]
@@ -91,7 +94,7 @@ class BC:
 
             # end of epoch
             if epochs < 10 or epoch % (epochs//10) == 0:  # every 10%
-                print(f' End of pretraining epoch {epoch}, loss={np.mean(losses) / len(losses):.3e}')
+                print(f' End of pretraining epoch {epoch}, loss={np.mean(losses):.3e}')
         # save
         torch.save([
             actor_critic,

@@ -82,7 +82,7 @@ def main():
     # raise ValueError
     if not args.no_pretrain:
         BC(agent, bc_filename, expert_filename, args, obsfilt, vae_codes_all).pretrain(envs)
-        # plot_env(args, actor_critic, obsfilt, 'pretrain', vae_data=vae_data)
+        plot_env(args, actor_critic, obsfilt, 'pretrain', vae_data=vae_data)
 
     if len(envs.observation_space.shape) != 1:
         raise NotImplementedError
@@ -215,7 +215,7 @@ def main():
 
         if j % args.result_interval == 0:
             ## visualize a sample trajectory
-            # plot_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
+            plot_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
             # from eval import benchmark_env
             # benchmark_env(args, actor_critic, obsfilt, j, vae_data=vae_data)
             # print('PLOT DISABLED')

@@ -204,9 +204,13 @@ def shared_data_loader(self):
     """A data loader that gives batches of (s,a) pairs from shared trajectories"""
     expert = load_expert(self.expert_filename)
     num_traj, traj_len = expert['states'].shape[:2]
+    
+    bc_batch_size = self.args.bc_batch_size
+    assert bc_batch_size <= traj_len, 'batch size cannot be larger than trajectory length'
+
     for _ in range(num_traj * traj_len // self.args.bc_batch_size):
         traj_idx = np.random.randint(0, num_traj)
-        step_idx = np.random.randint(0, traj_len, self.args.bc_batch_size)
+        step_idx = np.random.permutation(traj_len)[np.arange(bc_batch_size)]
         yield [expert[key][traj_idx][step_idx] for key in ('states', 'actions')]
 
 

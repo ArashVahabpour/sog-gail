@@ -84,18 +84,18 @@ def generate_latent_codes(args, count=None, vae_data=None, eval=False):
         vae_mus, _, vae_codes, vae_codes_all = vae_data
     if eval:
         if args.vae_gail:
-            if args.vae_num_modes > 0:
+            if args.num_clusters > 0:
                 return vae_codes
             else:
                 raise NotImplementedError('please implement below') #TODO (calculate cluster centers)
                 trajs = torch.load()
                 np.unique(torch.load('./trajs_halfcheetahvel.pt')['modes'])
-            # else:  # if not args.vae_num_modes > 0
+            # else:  # if not args.num_clusters > 0
             #     perm = torch.randperm(vae_mus.size(0))
             #     idx = perm[:count]
             #     return vae_mus[idx]
         elif args.continuous:
-            if True:#args.latent_dim <= 3:  #TODO take care of here
+            if args.sog_gail and args.latent_dim <= 3:
                 # make an n-dimensional grid
                 if count is None:
                     count = 5

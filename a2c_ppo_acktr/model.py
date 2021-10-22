@@ -14,7 +14,7 @@ class Policy(nn.Module):
         else:
             raise NotImplementedError  # base = MLPBase
 
-        self.base = base(obs_shape[0], args.latent_dim)
+        self.base = base(obs_shape[0], args.latent_dim, args.hidden_size)
 
         if action_space.__class__.__name__ == "Discrete":
             num_outputs = action_space.n
@@ -89,7 +89,6 @@ class Policy(nn.Module):
 class CirclesMLPBase(nn.Module):
     def __init__(self, state_dim, latent_dim, hidden_size=128):
         super().__init__()
-
         self.output_size = hidden_size
 
         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.

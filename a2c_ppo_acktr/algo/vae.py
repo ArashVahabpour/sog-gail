@@ -130,7 +130,7 @@ class VAE(nn.Module):
 
         if args.vae_cheat:
             modes = self.expert['modes']
-            vae_codes = torch.stack([mus[torch.nonzero(modes == i, as_tuple=True)].mean(dim=0) for i in range(args.vae_num_modes)])
+            vae_codes = torch.stack([mus[torch.nonzero(modes == i, as_tuple=True)].mean(dim=0) for i in range(args.num_clusters)])
             vae_codes_all = vae_codes[modes.long()]
         else:
             vae_codes, vae_codes_all = mus, mus

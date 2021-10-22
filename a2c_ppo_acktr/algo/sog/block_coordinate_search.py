@@ -51,10 +51,14 @@ class BlockCoordinateSearch(BaseSearch):
         # Go back over the latent vector and re-search
         for round_idx, block_idx in itertools.product(range(self.n_rounds),
                                                       range(self.latent_dim // self.block_size)):
-            # batch_size x latent_batch_size x n_latent
             new_z = self._sample(best_z, block_idx)
             if self.shared:
+                # batch_size x latent_batch_size x n_latent
                 new_z = new_z.expand(batch_size, -1, -1)
-            best_z = self.search_iter(new_z, actions=action, states=state)
+            best_z = self.search_iter(new_z, actions=action, states=state)[0][None]
 
+        if self.shared:
+            # batch_size x latent_batch_size x n_latent
+            new_z = new_z.expand(batch_size, -1, -1)
+            
         return best_z
