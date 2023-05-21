@@ -1,7 +1,6 @@
 **Videos**
 
 
-[![Half-Cheetah-Vel]](https://studio.youtube.com/video/SBW2Nu-fisg/edit)
-
-
-[![Fetch-Reach]](https://studio.youtube.com/video/ecI9Phj5N0w/edit)
+- [Half-Cheetah-Vel](https://youtube.com/shorts/SBW2Nu-fisg)
+- [Fetch-Reach](https://youtu.be/ecI9Phj5N0w)
+- [Humanoid --> To be uploaded](https://studio.youtube.com/video/ecI9Phj5N0w/edit)
